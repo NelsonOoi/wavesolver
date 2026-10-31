@@ -1,0 +1,31 @@
+# Private research workspace: design studies, results, notes, external fab code and COMSOL models
+/research/
+
+# Script outputs and external reference data
+/validation/out/
+/validation/reference/*.mat
+/examples/out/
+/benchmarks/
+
+# Environments and caches
+.pixi/
+.venv/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Large or generated files
+*.mph
+*.mphbin
+*.npz
+*.npy
+!/validation/reference/*.npz
+
+# Editors and OS
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
