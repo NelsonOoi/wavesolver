@@ -1,5 +1,5 @@
 """
-End-to-end finite-difference check of the device-level adjoint (omc.codesign).
+End-to-end finite-difference check of the device-level adjoint (wavesolver.codesign).
 
 Test structure (small on purpose): one period a = 0.48 µm along x (Bloch k = 0 for the
 mechanics, X point for the optics), and across y from −1.36 to 2.0 µm:
@@ -44,7 +44,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from omc.codesign import (  # noqa: E402
+from wavesolver.codesign import (  # noqa: E402
     Design,
     DeviceModel,
     LightConeQ,
@@ -55,9 +55,9 @@ from omc.codesign import (  # noqa: E402
     PiezoSiMap,
     system_check,
 )
-from omc.coupling import block_mean, g0 as g0_value, optical_mode  # noqa: E402
-from omc.materials import LN_PIEZO, SI, SI_EPS_R  # noqa: E402
-from omc.piezo import Electrode, PiezoLayer, PiezoSolver  # noqa: E402
+from wavesolver.coupling import block_mean, g0 as g0_value, optical_mode  # noqa: E402
+from wavesolver.materials import LN_PIEZO, SI, SI_EPS_R  # noqa: E402
+from wavesolver.piezo import Electrode, PiezoLayer, PiezoSolver  # noqa: E402
 
 LX, YLO, YHI = 0.48, -1.36, 2.0
 N1, N2, SUB = 12, 84, 4
@@ -242,8 +242,8 @@ def main() -> None:
 
     if not args.skip_q:
         print("2. light-cone Q proxy (blade cell, Γ, band 1)")
-        from omc.geometry import HexLattice, blade_hole, solid_fraction
-        from omc.optics_pwe import PWESolver, slab_cell
+        from wavesolver.geometry import HexLattice, blade_hole, solid_fraction
+        from wavesolver.optics_pwe import PWESolver, slab_cell
 
         lat = HexLattice(0.448)
         fr0 = solid_fraction(lat, [blade_hole(0.172, 0.093, 0.025)], 16)

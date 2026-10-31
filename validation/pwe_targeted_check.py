@@ -27,9 +27,9 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from omc.cavity import gpt07_cavity  # noqa: E402
-from omc.geometry import HexLattice, blade_hole, solid_fraction  # noqa: E402
-from omc.optics_pwe import PWESolver, slab_cell  # noqa: E402
+from wavesolver.cavity import gpt07_cavity  # noqa: E402
+from wavesolver.geometry import HexLattice, blade_hole, solid_fraction  # noqa: E402
+from wavesolver.optics_pwe import PWESolver, slab_cell  # noqa: E402
 
 EPS_SI = 3.48**2
 T = 0.22

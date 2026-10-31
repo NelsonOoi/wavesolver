@@ -22,7 +22,7 @@ returns that mean for every band of a cluster (degenerate="mean"), or the raw pe
 formula (degenerate="raw").
 
 Chain rule to shape parameters or a density field: dλ/dθ = Σ_e ∂λ/∂f_e ∂f_e/∂θ, with the
-fraction map's vector-Jacobian product from `omc.parametrize`.
+fraction map's vector-Jacobian product from `wavesolver.parametrize`.
 """
 
 from __future__ import annotations
@@ -254,7 +254,7 @@ def eigenvector_adjoint_solver(K, M, lam: float, x: np.ndarray, pivot_thresh: fl
     i.e. the M-orthogonal solution of the singular system restricted to the range (r ⊥ x is
     the case of interest: the gradient of a functional invariant under the scale of x). If
     dJ = Re(rᴴ dx) for an eigenvector change dx, then dJ = −Re(zᴴ (dK − λ dM) x): the
-    adjoint of eigenvector-dependent functionals (omc.coupling_adjoint), one factorisation
+    adjoint of eigenvector-dependent functionals (wavesolver.coupling_adjoint), one factorisation
     for any number of right-hand sides.
 
     The bordered system [[K − λM, Mx], [(Mx)ᴴ, 0]] [z; μ] = [r; 0] is nonsingular for a simple

@@ -1,5 +1,5 @@
 """
-Finite-difference checks of the piezo sensitivities (omc.piezo).
+Finite-difference checks of the piezo sensitivities (wavesolver.piezo).
 
 Problem: the periodic IDT section of validation/piezo_angle.py (250 nm LN at θ = 30°, which
 breaks every mirror symmetry) on a coarse mesh. Design variables: θ, and the fraction maps of
@@ -29,7 +29,7 @@ sys.path.insert(0, str(ROOT / "validation"))
 
 from piezo_angle import idt_cell  # noqa: E402
 
-from omc.materials import LN_PIEZO, rotation_derivatives, x_cut, x_cut_derivative  # noqa: E402
+from wavesolver.materials import LN_PIEZO, rotation_derivatives, x_cut, x_cut_derivative  # noqa: E402
 
 MESH = (4, 8, 2, 2, 2, 1)
 THETA = 30.0

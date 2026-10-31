@@ -19,10 +19,10 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from omc.geometry import HexLattice, blade_hole, solid_fraction  # noqa: E402
-from omc.materials import SI  # noqa: E402
-from omc.mech_adjoint import sensitivities  # noqa: E402
-from omc.mech_bloch import BlochSolver  # noqa: E402
+from wavesolver.geometry import HexLattice, blade_hole, solid_fraction  # noqa: E402
+from wavesolver.materials import SI  # noqa: E402
+from wavesolver.mech_adjoint import sensitivities  # noqa: E402
+from wavesolver.mech_bloch import BlochSolver  # noqa: E402
 
 A, T, N = 0.448, 0.22, 32  # lattice constant, thickness (µm), elements per lattice vector
 

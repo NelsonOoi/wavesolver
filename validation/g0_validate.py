@@ -1,5 +1,5 @@
 """
-Validation of omc.coupling (the two first-order terms of g0) and of PWESolver.voxel_sensitivity.
+Validation of wavesolver.coupling (the two first-order terms of g0) and of PWESolver.voxel_sensitivity.
 
 0. voxel_sensitivity summed over z with g(z) against the existing in-plane `sensitivities`.
 1. strain() of a slab_p mode against central differences of displacement() (x, y, z).
@@ -43,7 +43,7 @@ from shapely.ops import unary_union
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from omc.coupling import (  # noqa: E402
+from wavesolver.coupling import (  # noqa: E402
     advected_fill,
     advected_fill_coarse,
     block_mean,
@@ -55,10 +55,10 @@ from omc.coupling import (  # noqa: E402
     strain,
     voxel_points,
 )
-from omc.geometry import HexLattice, blade_hole, solid_fraction  # noqa: E402
-from omc.materials import SI_ISOTROPIC, SI_P, rot_z, rotate_stiffness  # noqa: E402
-from omc.mech_bloch import BlochSolver  # noqa: E402
-from omc.optics_pwe import C_UM_PER_PS, PWESolver, slab_cell  # noqa: E402
+from wavesolver.geometry import HexLattice, blade_hole, solid_fraction  # noqa: E402
+from wavesolver.materials import SI_ISOTROPIC, SI_P, rot_z, rotate_stiffness  # noqa: E402
+from wavesolver.mech_bloch import BlochSolver  # noqa: E402
+from wavesolver.optics_pwe import C_UM_PER_PS, PWESolver, slab_cell  # noqa: E402
 
 A, T, N_SI = 0.448, 0.22, 3.48
 OUT = ROOT / "validation/out"

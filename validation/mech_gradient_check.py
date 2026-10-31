@@ -1,12 +1,12 @@
 """
-Finite-difference checks of the mechanical Bloch band sensitivities (omc.mech_adjoint).
+Finite-difference checks of the mechanical Bloch band sensitivities (wavesolver.mech_adjoint).
 
 1. Fraction level: ∂f_band/∂fraction along a random direction of element fractions, for
    plane stress, both slab_p parities and a two-layer LN/Si stack (one direction per layer),
    at a generic k. Also the identity Σ_e f_e ∂λ/∂f_e = 0 (K and M scale together).
 2. Shape parameters: ∂f_band/∂θ for every field of a `TripodHole` with all features on
    (arms, hub, end pads, corner radii, junction holes), through the smoothed-raster
-   Jacobian of omc.parametrize, both slab_p parities.
+   Jacobian of wavesolver.parametrize, both slab_p parities.
 4. Free-form density (C3v node orbits → cone filter → tanh projection, β = 8): band
    gradient along a random direction of the design vector, and the Zhou length-scale
    measures' gradients, against FD.
@@ -39,11 +39,11 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from omc.geometry import HexLattice, blade_hole, solid_fraction  # noqa: E402
-from omc.materials import LN, SI, SI_ISOTROPIC, x_cut  # noqa: E402
-from omc.mech_adjoint import cluster_matrix, sensitivities  # noqa: E402
-from omc.mech_bloch import BlochSolver, Layer  # noqa: E402
-from omc.parametrize import DensityCell, ParametricCell, TripodHole  # noqa: E402
+from wavesolver.geometry import HexLattice, blade_hole, solid_fraction  # noqa: E402
+from wavesolver.materials import LN, SI, SI_ISOTROPIC, x_cut  # noqa: E402
+from wavesolver.mech_adjoint import cluster_matrix, sensitivities  # noqa: E402
+from wavesolver.mech_bloch import BlochSolver, Layer  # noqa: E402
+from wavesolver.parametrize import DensityCell, ParametricCell, TripodHole  # noqa: E402
 
 OUT = ROOT / "validation/out"
 LAT = HexLattice(0.448)

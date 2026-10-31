@@ -4,10 +4,10 @@ Parametric layout of the whole piezo-optomechanical transducer: shield crystal, 
 the shield; option B: along +x past the cavity's far mirror), LN patch transducer with finger
 electrodes, routing to the microwave-resonator pad, open windows and the release region.
 
-Coordinates (µm, as gpt_omc and omc.linedefect). The line defect runs along x with its defect
+Coordinates (µm, as gpt_omc and wavesolver.linedefect). The line defect runs along x with its defect
 cell (column 0) centred on the origin; column n is centred at x = n·a. The defect region is
 |y| < W/2 (W = defect_rows·h, h = √3a/2). The upper shield is the hexagonal crystal with sites
-(x_shift·a + i·a + j·a/2, y₁ + j·h), j ≥ 0, y₁ = W/2 + h/2 (omc.linedefect.LineDefectLayout); the
+(x_shift·a + i·a + j·a/2, y₁ + j·h), j ≥ 0, y₁ = W/2 + h/2 (wavesolver.linedefect.LineDefectLayout); the
 lower shield is its mirror image y → −y. Row j of the upper shield owns the band
 W/2 + j·h ≤ y < W/2 + (j + 1)·h.
 
@@ -17,7 +17,7 @@ Geometry model. Everything is polygons (shapely), assembled in this order:
    position (columns x_lo ≤ x_site < x_hi, rows 0 … n_rows − 1), so the crystal edge is made of whole
    holes, as in gpt_omc.
 2. Raster regions (`RasterRegion`), in priority order: the cavity chain (per-cell fine rasters of
-   the line-defect supercell, as omc.cavity.chain_domain / omc.linedefect take them) and the option-A
+   the line-defect supercell, as wavesolver.cavity.chain_domain / wavesolver.linedefect take them) and the option-A
    channel (its rectangular supercell raster, tiled along y). Each region's air (fraction < ½,
    contoured with linear interpolation, i.e. the boundary the solvers' fraction maps imply) replaces
    whatever lies inside the region's rectangle: etch = (etch − rect) ∪ (air ∩ rect).
@@ -38,12 +38,12 @@ instead. New layers, names to be confirmed for the mask: LAYER_LN = "LN_patch" (
 LAYER_METAL = "M2_metal", LAYER_RELEASE = "Release" (informational, not written by default).
 
 Solver rasters. `Device.si_fraction(rect, n1, n2)` rasterises the drawn Si on any rectangle with the
-omc.cavity / omc.linedefect pixel convention (pixel (i, j) centred at x0 + (i + ½)·dx, y0 + (j + ½)·dy);
+wavesolver.cavity / wavesolver.linedefect pixel convention (pixel (i, j) centred at x0 + (i + ½)·dx, y0 + (j + ½)·dy);
 `ln_fraction` gives the LN fraction of a sub-layer at a height (sidewall included), and
-`metal_mask` the electrode masks per net, as omc.piezo.PiezoLayer / Electrode take them.
+`metal_mask` the electrode masks per net, as wavesolver.piezo.PiezoLayer / Electrode take them.
 `Device.regions` holds the named rectangles (cavity, channel, transducer, optical_port, ...).
 
-    from omc.layout import DeviceSpec, build_device
+    from wavesolver.layout import DeviceSpec, build_device
     dev = build_device(DeviceSpec(option="B", ...))
     dev.write_dxf("layout_B.dxf")
 """
@@ -151,7 +151,7 @@ def _rect(x0: float, y0: float, x1: float, y1: float) -> Polygon:
 def shield_level(shield, xy: np.ndarray) -> np.ndarray:
     """
     Continuous level of the shield crystal at crystal-frame points xy (..., 2): > 0 in Si, < 0 in air,
-    zero on the boundary. TripodShield: the signed distance of omc.parametrize; DensityShield: the
+    zero on the boundary. TripodShield: the signed distance of wavesolver.parametrize; DensityShield: the
     filtered density minus its threshold η; anything else with `.solid(xy)`: a 3×3-supersampled
     indicator minus ½ (staircase, ~res/3).
     """
@@ -298,7 +298,7 @@ class RasterRegion:
 @dataclass
 class CavityChain:
     """
-    The cavity as cells along x (omc.cavity.chain_domain convention): fine fraction rasters
+    The cavity as cells along x (wavesolver.cavity.chain_domain convention): fine fraction rasters
     (F1, F2), one per column first_column … first_column + N − 1, each spanning
     [n·a − a/2, n·a + a/2] × [−height/2, height/2]. labels: region name per cell ("mirror",
     "taper", "defect", "channel", ...).
@@ -336,7 +336,7 @@ class ChannelA:
     × [W/2 + 2k·h, W/2 + (2k + 2)·h] for period k (rows 2k and 2k + 1). It starts at row n_sep
     (the shield rows 0 … n_sep − 1 between the defect region and the channel stay crystal) and runs
     to the top of the crystal block; inside |x − x_axis| < half_width it replaces the crystal.
-    `omc.channel.VerticalChannel.layout_raster()` makes it.
+    `wavesolver.channel.VerticalChannel.layout_raster()` makes it.
     """
 
     fraction: np.ndarray
@@ -431,7 +431,7 @@ class Transducer:
 @dataclass
 class DeviceSpec:
     """
-    Everything that defines one device. shield: an omc.linedefect shield (.a, .solid); chain: the
+    Everything that defines one device. shield: an wavesolver.linedefect shield (.a, .solid); chain: the
     CavityChain (cells left → right; column 0 the defect). option "A" or "B". B: channel_b cells
     (line-defect supercell rasters, same grid as the chain) appended after the chain's last column.
     A: channel_a (ChannelA). rows: shield rows per side (A: also the channel's top end).
@@ -770,7 +770,7 @@ def linedefect_chain(design: str = "linedefect_opt_E1_x.npy", mirror: str = "eta
                      n_right: tuple[int, int] = (8, 8), Nt: float = 6.0, p: float = 2.0, rows: int = 3, beta: float = 32.0,
                      sharp: bool = False, n1: int = 32):
     """
-    Cavity chain from an omc.linedefect design (research/out/<design>) and its MorphFamily mirror:
+    Cavity chain from an wavesolver.linedefect design (research/out/<design>) and its MorphFamily mirror:
     left (optical side) n_left = (taper half-length, mirror cells), right likewise; the morph s(n) =
     min(1, (|n|/N_t)^p) inside each taper half, 1 in the mirror cells (as linedefect.taper_profile, but
     with the two sides independent). Returns (CavityChain, LineDefectLayout, MorphFamily, s-profile).

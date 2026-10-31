@@ -21,8 +21,8 @@ from scipy.optimize import brentq
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from omc.geometry import HexLattice  # noqa: E402
-from omc.optics_pwe import C_UM_PER_PS, PWESolver, slab_cell  # noqa: E402
+from wavesolver.geometry import HexLattice  # noqa: E402
+from wavesolver.optics_pwe import C_UM_PER_PS, PWESolver, slab_cell  # noqa: E402
 
 N_SI = 3.48
 T = 0.22

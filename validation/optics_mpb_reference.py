@@ -24,7 +24,7 @@ from meep import mpb
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from omc.geometry import HexLattice, blade_hole, solid_fraction  # noqa: E402
+from wavesolver.geometry import HexLattice, blade_hole, solid_fraction  # noqa: E402
 
 A = 0.448
 T = 0.22

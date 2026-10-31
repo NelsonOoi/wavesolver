@@ -24,7 +24,7 @@ columns (ρ → ρ(1 − iη)): with e^{iωt}, Im ω > 0 is decay, Q = Re ω / 2
 a numerical device standing in for whatever the row continues into; its Q is only meaningful
 if it is converged in η and length.
 
-Units as omc.mech_bloch: µm, Hz.
+Units as wavesolver.mech_bloch: µm, Hz.
 """
 
 from __future__ import annotations
@@ -192,7 +192,7 @@ def mech_cavity(
     slab_p (even) solver on the domain, n_cell elements per column along x and n2 along a2
     (default ≈ a/n_cell, rounded to even; both taken from the rasters of a raster-built domain). sym_y (rectangular domain only): keep the σ_y-even
     subspace, u(x, −y) = (u_x, −u_y, u_z)(x, y), as an exact reduction P of the DOFs.
-    min_fraction: elements kept by the solver (≈ 1e-9 for shape gradients, see omc.coupling_adjoint).
+    min_fraction: elements kept by the solver (≈ 1e-9 for shape gradients, see wavesolver.coupling_adjoint).
     loads: BlochSolver membrane loads [(material, thickness µm, fraction (n1, n2))] on the same grid
     (e.g. an LN/Al transducer on part of the chain); fixed, not design variables.
     """

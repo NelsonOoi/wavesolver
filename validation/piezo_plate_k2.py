@@ -34,8 +34,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from omc.materials import EPS0, LN_PIEZO, x_cut  # noqa: E402
-from omc.piezo import Electrode, PiezoLayer, PiezoSolver  # noqa: E402
+from wavesolver.materials import EPS0, LN_PIEZO, x_cut  # noqa: E402
+from wavesolver.piezo import Electrode, PiezoLayer, PiezoSolver  # noqa: E402
 
 OUT = ROOT / "validation/out"
 T = 0.25  # plate thickness, µm

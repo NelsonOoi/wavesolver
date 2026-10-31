@@ -1,12 +1,12 @@
 """
 LN-patch transducer on a Si strip, for the mechanical port: the IDT period cell (g_em, C₀, k_eff² per
-finger pair, and their θ gradients from omc.piezo), the guided modes of the Si output strip at f_m,
+finger pair, and their θ gradients from wavesolver.piezo), the guided modes of the Si output strip at f_m,
 and the launch problem (finite IDT → bare Si strip → PML) with the radiated power split over the strip
 modes (conversion efficiency into the channel mode versus parasitic modes).
 
 Geometry (local frame, propagation along +x, aperture along y, z up): a Si strip of width w_si
 (220 nm, cubic [100] ∥ x — also [010] ∥ x, so the frame may be rotated by 90° with the device, as for
-option A), under an LN ridge (250 nm, X-cut, in-plane angle θ of omc.materials.x_cut, top width
+option A), under an LN ridge (250 nm, X-cut, in-plane angle θ of wavesolver.materials.x_cut, top width
 w_ln, sidewall angle `sidewall` from the substrate plane: the bottom face is wider by t/tan(sidewall)
 per side; stepped in n_ln sub-layers), with Al fingers (t_al) across the LN top: one hot and one
 grounded finger per period p, width fw·p/2 (metallisation ratio fw).
@@ -19,7 +19,7 @@ e^{+ik_m x}) φ_m. The time-averaged power of mode m is P_m = |a_m|² v_m (ω²/
 velocity × energy per length, lossless guide). The electrical input P_in = ½ Re(Y)|V|² closes the
 balance (everything radiated leaves through the strip into the PML).
 
-Units: µm, Hz, SI at the interface (as omc.piezo).
+Units: µm, Hz, SI at the interface (as wavesolver.piezo).
 """
 
 from __future__ import annotations

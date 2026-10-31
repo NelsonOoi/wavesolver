@@ -1,6 +1,6 @@
 """
 Reduced-order mechanical models for structures made of repeating cells, built on the
-discretisation of omc.mech_bloch (same element matrices, grids and DOF numbering), with
+discretisation of wavesolver.mech_bloch (same element matrices, grids and DOF numbering), with
 sensitivities to every cell's fraction map.
 
 - `BlochROM`: Bloch mode synthesis (BMS; Krattiger & Hussein, PRE 90, 063306 (2014); local
@@ -23,7 +23,7 @@ sensitivities to every cell's fraction map.
 - `ChainROM`: component mode synthesis of a finite chain of cells along a1 (a cavity of N
   columns with its shield rows, closed along a2 at k·a2 = 0, periodic or free-ended along a1),
   each cell with its own fraction raster and optional absorber η (complex mass ρ(1 − iη) as in
-  omc.cavity, so K − λ(M − iA) stays complex symmetric and Q = Re f / 2 Im f). Each distinct
+  wavesolver.cavity, so K − λ(M − iA) stays complex symmetric and Q = Re f / 2 Im f). Each distinct
   raster is reduced on its own by a frequency-shifted Craig–Bampton: fixed-interface modes
   nearest the target σ, interface lifts −A_II⁻¹A_IΓΦ_Γ exact at σ, and their first moment
   A_II⁻¹M_II·lifts (first order in λ − σ). All interfaces share one basis Φ_Γ (the Bloch-wave
@@ -42,12 +42,12 @@ the reconstructed mode, so the projected gradient is the full-model gradient to 
 model's eigenvector accuracy.
 
 Reconstruction: `BlochROM.reconstruct` gives a vector on the BlochSolver DOFs (for
-omc.mech_adjoint, omc.coupling.mech_mode); `ChainROM.full_vector` on the DOFs of the whole
-chain's BlochSolver (that of omc.cavity.mech_cavity on the same rasters), with `ChainROM.grid()`
+wavesolver.mech_adjoint, wavesolver.coupling.mech_mode); `ChainROM.full_vector` on the DOFs of the whole
+chain's BlochSolver (that of wavesolver.cavity.mech_cavity on the same rasters), with `ChainROM.grid()`
 and `mass_operator()` standing in for that solver in coupling.mech_mode (g0, m_eff) without
 assembling it.
 
-Units as omc.mech_bloch: µm, Hz; eigenvalues λ = (2π f / OMEGA_UNIT)².
+Units as wavesolver.mech_bloch: µm, Hz; eigenvalues λ = (2π f / OMEGA_UNIT)².
 """
 
 from __future__ import annotations
@@ -538,7 +538,7 @@ class BlochROM:
 
     def sensitivities(self, k, n_bands: int = 10, degenerate: str = "mean", rtol: float = 1e-4, keep_vectors: bool = False) -> BandSensitivity:
         """
-        As omc.mech_adjoint.sensitivities (BandSensitivity, dfreq (nparts, nb, n1, n2) in Hz
+        As wavesolver.mech_adjoint.sensitivities (BandSensitivity, dfreq (nparts, nb, n1, n2) in Hz
         per unit fraction), from the reconstructed modes: exact to the reduced model's accuracy.
         """
         f, q = self.solve(k, n_bands, vectors=True)
@@ -767,10 +767,10 @@ class ChainROM:
     """
     Component mode synthesis of a chain of cells along a1.
 
-    cell_lattice: lattice of one cell (a1 = (pitch, 0), a2), as in omc.cavity: every cell is on
+    cell_lattice: lattice of one cell (a1 = (pitch, 0), a2), as in wavesolver.cavity: every cell is on
     the same n_cell × n2 grid. fractions: per-cell rasters (n_cell, n2). etas: per-cell absorber
     η on the same grid (None: lossless). periodic: the last cell joins the first (as
-    omc.cavity's supercell), else the chain has free ends. Each cell is closed along a2 at
+    wavesolver.cavity's supercell), else the chain has free ends. Each cell is closed along a2 at
     k·a2 = 0. target_hz: shift σ of the reductions and of the solve. n_fixed: fixed-interface
     modes per cell (nearest σ). n_iface: size of the interface basis Φ_Γ shared by all interfaces
     (None: the exact interface, for checks). ref_cells: cells whose interfaces define Φ_Γ
@@ -781,7 +781,7 @@ class ChainROM:
     (e.g. a mirror and its absorbing copies) are reduced once; an absorber only adds Vᵀ A V.
     `set_cell` changes one cell, re-reducing it (or, frozen=True, projecting it on the basis of
     a neighbour or of its previous self: no factorisation); `solve` gives complex frequencies;
-    `full_vector`/`grid`/`mass_operator` the mode on the whole chain for omc.coupling;
+    `full_vector`/`grid`/`mass_operator` the mode on the whole chain for wavesolver.coupling;
     `sensitivities` ∂λ/∂fraction per cell.
     """
 
@@ -1230,7 +1230,7 @@ class ChainROM:
         return (gi * n2 + oc.node_j[oc.p]) * self.dpn + oc.comp[oc.p]
 
     def full_vector(self, Q: np.ndarray, phase1: float = 0.0, grid: "ChainGrid | None" = None) -> np.ndarray:
-        """Modes on the whole chain's DOFs (ChainGrid.dofs = omc.cavity.mech_cavity(...).solver.dofs on the same rasters)."""
+        """Modes on the whole chain's DOFs (ChainGrid.dofs = wavesolver.cavity.mech_cavity(...).solver.dofs on the same rasters)."""
         g = grid or self.grid()
         Q = np.atleast_2d(Q.T).T
         x = np.zeros((len(g.dofs), Q.shape[1]), complex)
@@ -1260,7 +1260,7 @@ class ChainROM:
         ∂λ/∂fraction of each mode (columns of Q, normalised qᵀM^c q = 1, eigenvalues lam) per
         cell: a list over cells of complex arrays (nv, n_cell, n2), the full-model formula
         u_eᵀ(K_e − λ(1 − iη_e)M_e)u_e with the reconstructed mode (the absorber scales with the
-        fraction, as omc.cavity.absorber_matrix). Exact for the reduced model with the bases held
+        fraction, as wavesolver.cavity.absorber_matrix). Exact for the reduced model with the bases held
         fixed; with re-reduction, exact to the reduced model's accuracy.
         """
         Q = np.atleast_2d(Q.T).T
@@ -1322,7 +1322,7 @@ class ChainMass:
 def chain_absorber(n_cell: int, n2: int, lattice_vectors: np.ndarray, columns: tuple[int, int], pitch: float,
                    absorb: list[int], eta_max: float, power: float = 2.0) -> np.ndarray:
     """
-    η on the whole chain grid (N n_cell, n2), as omc.cavity.column_absorber (t ramps 0 → 1 over
+    η on the whole chain grid (N n_cell, n2), as wavesolver.cavity.column_absorber (t ramps 0 → 1 over
     the listed columns away from column 0, η = eta_max t^power), for every element.
     """
     c0, c1 = columns

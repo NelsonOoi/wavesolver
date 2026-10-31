@@ -19,8 +19,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from omc.geometry import HexLattice, blade_hole, solid_fraction  # noqa: E402
-from omc.optics_pwe import PWESolver, light_line_thz, slab_cell  # noqa: E402
+from wavesolver.geometry import HexLattice, blade_hole, solid_fraction  # noqa: E402
+from wavesolver.optics_pwe import PWESolver, light_line_thz, slab_cell  # noqa: E402
 
 A, T, N_SI = 0.448, 0.22, 3.48
 N, NZ, HEIGHT = 24, 64, 1.5  # in-plane grid, z samples, supercell height (µm)

@@ -5,7 +5,7 @@ One mechanical eigenmode of one structure (Si cavity, phononic channel, LN trans
 `PiezoSolver`, short circuit, Γ point) carries both couplings: g0 to the optical mode (PWE,
 Si only, in an optical window of the same grid) and g_em to the microwave resonator (through
 the charge the mode induces on the terminal). The figure of merit is the three-mode model of
-omc.system (`three_mode_response`): conversion efficiency at the resonance (fom="eta") or its
+wavesolver.system (`three_mode_response`): conversion efficiency at the resonance (fom="eta") or its
 integral over the signal frequency, ∫η dν/2π = η_peak × equivalent bandwidth (fom="eta_bw").
 
     η(ν) = κ_ex κ_r,ex |T_ac(ν)|²,  T = M(ν)⁻¹,  M = [[κ/2 − iν, ig, 0], [ig, (γ − Γ₊)/2 − iν, ig_em], [0, ig_em, κ_r/2 − iν]]
@@ -49,9 +49,9 @@ the left eigenvector is the transpose, dλ = ŷᵀdA ŷ/ŷᵀBŷ, PiezoSolver.ei
 Im λ over the lossy elements, e.g. parasitic edges vs an intended mechanical port; values
 only, the gradient is that of the total γ_leak); Q_o through
 a `QoModel` (callable returning Q and dQ/df_o): `LightConeQ` is a PWE light-cone proxy with
-an adjoint gradient, `ExternalQ` the stub for omc.cavity's finite-cavity method (agent D).
+an adjoint gradient, `ExternalQ` the stub for wavesolver.cavity's finite-cavity method (agent D).
 Fab rules (Si ≥ 80 nm, LN ≥ 200 nm) are constraints of the parametrisation
-(omc.parametrize: bridge widths, Zhou length scale) and are not repeated here.
+(wavesolver.parametrize: bridge widths, Zhou length scale) and are not repeated here.
 
 Units: rates in rad/s, frequencies in Hz, lengths µm, fractions dimensionless.
 """
@@ -154,7 +154,7 @@ def eta_partials(values: dict, P: SystemParams) -> tuple[float, dict]:
 
 
 def system_check(values: dict, P: SystemParams) -> dict:
-    """η from omc.system (three_mode_response at ν = 0, and the closed form) for the same values."""
+    """η from wavesolver.system (three_mode_response at ν = 0, and the closed form) for the same values."""
     from .system import Resonator, Transducer, three_mode_efficiency_resonant, three_mode_response
 
     wo = values["omega_o"]
@@ -170,7 +170,7 @@ def system_check(values: dict, P: SystemParams) -> dict:
 
 
 def _lobatto_to_legendre(order: int) -> np.ndarray:
-    """T (order+1, order+1): Lobatto function q = Σ_d T[d, q] P_d(s) (omc.mech_bloch.lobatto order)."""
+    """T (order+1, order+1): Lobatto function q = Σ_d T[d, q] P_d(s) (wavesolver.mech_bloch.lobatto order)."""
     T = np.zeros((order + 1, order + 1))
     T[0, 0], T[1, 0] = 0.5, -0.5
     T[0, order], T[1, order] = 0.5, 0.5
@@ -298,7 +298,7 @@ class QoModel(Protocol):
 
 class ExternalQ:
     """
-    Stub for the finite-cavity Q_o of omc.cavity (agent D: light-cone Fourier proxy of a cavity
+    Stub for the finite-cavity Q_o of wavesolver.cavity (agent D: light-cone Fourier proxy of a cavity
     supercell field, or meep FDTD). Pass a callable fn(opt_solver, band) -> (Q, dQ/df_o).
     """
 
@@ -307,7 +307,7 @@ class ExternalQ:
 
     def __call__(self, opt_solver: PWESolver, band: int) -> tuple[float, np.ndarray]:
         if self.fn is None:
-            raise NotImplementedError("finite-cavity Q_o (omc.cavity) is not connected yet")
+            raise NotImplementedError("finite-cavity Q_o (wavesolver.cavity) is not connected yet")
         return self.fn(opt_solver, band)
 
 

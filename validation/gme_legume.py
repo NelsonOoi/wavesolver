@@ -1,5 +1,5 @@
 """
-legume cross-check of omc.optics_gme (legume is NOT in the project environment).
+legume cross-check of wavesolver.optics_gme (legume is NOT in the project environment).
 
 1. Export the geometry from the project environment (polygons, lattice, k-points):
 
@@ -15,7 +15,7 @@ legume cross-check of omc.optics_gme (legume is NOT in the project environment).
        /tmp/legume/bin/python -I validation/gme_legume.py cavity validation/out/gme_legume_cavity_c-8_8_r2.npz 4 177.27
 
    Settings matched to GMESolver(truncate="G", n_te=1, n_tm=0 → gmode_inds=[0]; n_tm=1 → [0, 3]),
-   eps_eff = average. legume uses the exact polygon Fourier transform; omc.optics_gme the pixel
+   eps_eff = average. legume uses the exact polygon Fourier transform; wavesolver.optics_gme the pixel
    raster, so the raster must be fine (≥ 128 px/a) for sub-0.1 % agreement.
 
 Results (2026-10-27): blade bands 0.11 % at 128 px/a (0.30 % at 64); blade Q_rad of leaky bands
@@ -40,8 +40,8 @@ def export() -> None:
     sys.path.insert(0, str(ROOT))
     from shapely.geometry.polygon import orient
 
-    from omc.cavity import gpt07_cavity
-    from omc.geometry import HexLattice, blade_hole
+    from wavesolver.cavity import gpt07_cavity
+    from wavesolver.geometry import HexLattice, blade_hole
 
     out = ROOT / "validation/out"
     lat = HexLattice(0.448)

@@ -1,9 +1,9 @@
 """
 Adjoint gradient of a finite cavity's g0 (and of f_o, f_m) with respect to the moving-boundary
 raster of the whole mechanical domain: the optics in a window of the mechanical grid
-(omc.cavity_optics), the mechanics a σ_y-reduced Γ-point cavity mode (omc.cavity).
+(wavesolver.cavity_optics), the mechanics a σ_y-reduced Γ-point cavity mode (wavesolver.cavity).
 
-The method is omc.coupling_adjoint.g0_gradient's, with three changes:
+The method is wavesolver.coupling_adjoint.g0_gradient's, with three changes:
 - the optical functional and the mechanical fields it sees are evaluated on the window
   (`optomech_functional(..., to_mode=win.to_mode)`), so ∂L/∂f_o and ∂L/∂f_fine live on the
   window and ∂L/∂f_m on the whole mechanical grid;

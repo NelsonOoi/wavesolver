@@ -239,13 +239,13 @@ class BlochSolver:
     lattice: anything with `.vectors` (rows a1, a2), e.g. HexLattice or the Lattice2D of
     `geometry.line_defect_supercell`. fraction: (n1, n2) solid fraction from
     `geometry.solid_fraction`. self.shape = (n1, n2); self.n = n1 for a square grid (as used by
-    omc.mech_adjoint) and None otherwise.
+    wavesolver.mech_adjoint) and None otherwise.
     model: "plane_stress", "plane_strain", "slab_p", "slab" or "stack".
     thickness: slab thickness in µm. order: highest Legendre degree through the thickness
     ("slab_p"), or through each layer ("stack"). nz: element layers over the half thickness
     ("slab"). layers: the `Layer`s of a "stack", bottom to top, replacing fraction and
     material. `parts` keeps each part's kept elements (`ElementPart`) for the sensitivities
-    in omc.mech_adjoint.
+    in wavesolver.mech_adjoint.
     loads ("slab_p" only): extra layers (material, layer thickness µm, fraction map) added as
     parts 1, 2, … on the same σ_z-even thickness basis, with C and ρ scaled by t_layer/thickness:
     a membrane model of thin films on the slab (their in-plane stiffness and mass per area are
@@ -307,7 +307,7 @@ class BlochSolver:
             dpn = 2
             parts = [(*q1_element(J2, D, rho), fraction, np.arange(dpn))]
         mesh_dim = 3 if nzl else 2
-        # Kept for field evaluation (omc.coupling): the thickness basis of each node's DOFs.
+        # Kept for field evaluation (wavesolver.coupling): the thickness basis of each node's DOFs.
         self.model, self.thickness, self.parity = model, thickness, parity
         self.basis = basis if model == "slab_p" else None
 

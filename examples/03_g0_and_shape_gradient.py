@@ -24,13 +24,13 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from omc.coupling import block_mean, g0, mech_mode, optical_mode  # noqa: E402
-from omc.coupling_adjoint import fine_total_gradient, g0_gradient  # noqa: E402
-from omc.geometry import HexLattice  # noqa: E402
-from omc.materials import SI, SI_P  # noqa: E402
-from omc.mech_bloch import BlochSolver  # noqa: E402
-from omc.optics_pwe import PWESolver, slab_cell  # noqa: E402
-from omc.parametrize import ParametricCell, TripodHole  # noqa: E402
+from wavesolver.coupling import block_mean, g0, mech_mode, optical_mode  # noqa: E402
+from wavesolver.coupling_adjoint import fine_total_gradient, g0_gradient  # noqa: E402
+from wavesolver.geometry import HexLattice  # noqa: E402
+from wavesolver.materials import SI, SI_P  # noqa: E402
+from wavesolver.mech_bloch import BlochSolver  # noqa: E402
+from wavesolver.optics_pwe import PWESolver, slab_cell  # noqa: E402
+from wavesolver.parametrize import ParametricCell, TripodHole  # noqa: E402
 
 A, T, N_SI = 0.448, 0.22, 3.48
 N, NZ, M = 24, 64, 8  # optical grid, z samples, moving-boundary supersampling (fine grid N·M)

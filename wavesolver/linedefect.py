@@ -22,13 +22,13 @@ Si indicator outside, so the filter sees the neighbouring shield) is filtered by
 of radius R, interpolated bilinearly to sub-points of a fine raster, projected (tanh, β, η) and
 averaged per fine pixel. Inside the region the fine fraction is the projected design, outside it
 is the shield's own supersampled fraction (unfiltered). The fine raster is the moving-boundary
-raster of omc.coupling; the optical and mechanical fractions are its block means, which is the
+raster of wavesolver.coupling; the optical and mechanical fractions are its block means, which is the
 convention of coupling_adjoint.fine_total_gradient. Minimum length scale: the Zhou et al. (2015)
 indicators on the filtered node field (as parametrize.DensityCell), plus a raster opening check
 of the thresholded design (`feature_check`).
 
-Backends. Optics: `PWEOptics` (omc.optics_pwe at the X point, k = π/a). Mechanics: `FEMMech`
-(omc.mech_bloch slab_p, even z-parity, reduced exactly to the σ_y-even or σ_y-odd subspace).
+Backends. Optics: `PWEOptics` (wavesolver.optics_pwe at the X point, k = π/a). Mechanics: `FEMMech`
+(wavesolver.mech_bloch slab_p, even z-parity, reduced exactly to the σ_y-even or σ_y-odd subspace).
 Both expose the small interface used by `evaluate` (solve, mode selection, frequency
 sensitivities, the solver objects for coupling_adjoint.g0_gradient), so a GME or ROM backend can
 replace them.
@@ -64,7 +64,7 @@ EPS_SI = 3.48**2
 C_UM_THZ = 299.792458
 ROOT = Path(__file__).resolve().parents[1]
 # Saved designs (unit-cell results, defect and mirror vectors) are read from here.
-OUT = Path(os.environ.get("OMC_DATA_DIR", ROOT / "research/out"))
+OUT = Path(os.environ.get("WAVESOLVER_DATA_DIR", ROOT / "research/out"))
 
 
 # --- shields -----------------------------------------------------------------------------------
@@ -79,7 +79,7 @@ def _reduce_hex(xy: np.ndarray, A: np.ndarray) -> np.ndarray:
 
 @dataclass
 class TripodShield:
-    """Parametric tripod crystal (omc.parametrize.ParametricCell without free parameters)."""
+    """Parametric tripod crystal (wavesolver.parametrize.ParametricCell without free parameters)."""
 
     cell: object
     name: str = "tripod"
@@ -107,7 +107,7 @@ class TripodShield:
 
 @dataclass
 class DensityShield:
-    """Free-form shared cell (omc.parametrize.DensityCell + design vector), thresholded at η."""
+    """Free-form shared cell (wavesolver.parametrize.DensityCell + design vector), thresholded at η."""
 
     dc: object
     x: np.ndarray
@@ -496,7 +496,7 @@ class OpticalSolve:
 
 
 class PWEOptics:
-    """TE-like PWE (omc.optics_pwe) on the optical grid of a layout, at in-plane k (default X)."""
+    """TE-like PWE (wavesolver.optics_pwe) on the optical grid of a layout, at in-plane k (default X)."""
 
     def __init__(self, layout: LineDefectLayout, nz: int = 48, height: float = 1.5, n_bands: int = 16, tol: float = 1e-4, maxiter: int = 400):
         self.layout, self.nz, self.height, self.n_bands, self.tol, self.maxiter = layout, nz, height, n_bands, tol, maxiter
@@ -558,7 +558,7 @@ def sym_y_basis(solver: BlochSolver, parity: int = 1) -> sp.csr_matrix:
     """
     Orthonormal basis of the σ_y-even (parity +1) or -odd (−1) DOF subspace of a solver on a
     rectangular, y-symmetric grid: σ_y u(x, y) = (u_x, −u_y, u_z)(x, −y). parity +1 is
-    omc.cavity._sym_y_basis.
+    wavesolver.cavity._sym_y_basis.
     """
     n1, n2 = solver.shape
     dpn = len(solver.basis)

@@ -2,7 +2,7 @@
 Lattices, hole shapes and their rasterisation onto lattice-aligned grids.
 
 Lengths are in µm. The tripod (blade) hole is defined here. The line-defect supercell and the
-finite-cavity builders in omc.cavity and omc.layout take their hole shapes from an external fab
+finite-cavity builders in wavesolver.cavity and wavesolver.layout take their hole shapes from an external fab
 generator, `gpt_omc.py`, which is not part of this repository: it is imported on first use, from
 the Python path, from the directory in GPT_OMC_PATH, or from research/ in the repository.
 """

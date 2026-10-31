@@ -22,10 +22,10 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from omc.geometry import HexLattice, blade_hole, solid_fraction  # noqa: E402
-from omc.materials import LN_PIEZO, SI, SI_EPS_R, Piezoelectric, x_cut  # noqa: E402
-from omc.mech_bloch import BlochSolver, Layer  # noqa: E402
-from omc.piezo import Electrode, PiezoLayer, PiezoSolver  # noqa: E402
+from wavesolver.geometry import HexLattice, blade_hole, solid_fraction  # noqa: E402
+from wavesolver.materials import LN_PIEZO, SI, SI_EPS_R, Piezoelectric, x_cut  # noqa: E402
+from wavesolver.mech_bloch import BlochSolver, Layer  # noqa: E402
+from wavesolver.piezo import Electrode, PiezoLayer, PiezoSolver  # noqa: E402
 
 N = 24
 ORDER = 2

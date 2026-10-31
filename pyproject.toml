@@ -1,5 +1,5 @@
 [project]
-name = "omc"
+name = "wavesolver"
 version = "0.1.0"
 description = "Fast mode solvers and inverse design for piezo-optomechanical crystals"
 readme = "README.md"
@@ -15,9 +15,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# CHOLMOD for Hermitian positive definite factorisations; omc.linalg falls back to SuperLU.
+# CHOLMOD for Hermitian positive definite factorisations; wavesolver.linalg falls back to SuperLU.
 cholmod = ["scikit-sparse>=0.4.16"]
-# DXF export in omc.layout.
+# DXF export in wavesolver.layout.
 dxf = ["ezdxf>=1.4"]
 
 [build-system]
@@ -25,7 +25,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["omc"]
+packages = ["wavesolver"]
 
 # pixi: compiled dependencies from conda-forge (SuiteSparse/CHOLMOD has no PyPI wheels).
 #   pixi run python validation/optics_slab_analytic.py
@@ -43,12 +43,12 @@ matplotlib = ">=3.9"
 scikit-sparse = ">=0.4.16"
 ezdxf = ">=1.4"
 
-# conda-forge has no win-64 jaxlib; on Windows jax comes from PyPI through omc's dependencies.
+# conda-forge has no win-64 jaxlib; on Windows jax comes from PyPI through wavesolver's dependencies.
 [tool.pixi.target.unix.dependencies]
 jax = ">=0.4.30"
 
 [tool.pixi.pypi-dependencies]
-omc = { path = ".", editable = true }
+wavesolver = { path = ".", editable = true }
 
 [tool.pixi.activation.env]
 OMP_NUM_THREADS = "1"

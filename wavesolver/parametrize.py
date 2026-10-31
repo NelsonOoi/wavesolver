@@ -2,7 +2,7 @@
 Differentiable maps from design parameters to the element solid fractions of `BlochSolver`.
 
 Both maps return f[i, j] on the n × n lattice-aligned grid of `geometry.solid_fraction` and a
-vector-Jacobian product, so band gradients ∂f_band/∂fraction from `omc.mech_adjoint` chain to
+vector-Jacobian product, so band gradients ∂f_band/∂fraction from `wavesolver.mech_adjoint` chain to
 the parameters. They are written in JAX (float64).
 
 Parametric holes (`TripodHole`, `ParametricCell`): each hole is a signed distance function

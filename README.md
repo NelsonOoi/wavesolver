@@ -1,6 +1,6 @@
-# omc: fast, differentiable mode solvers for optomechanical and phoxonic crystals
+# wavesolver: fast, differentiable mode solvers for optomechanical and phoxonic crystals
 
-`omc` computes the mechanical, optical and piezoelectric modes of patterned membranes (Si slabs,
+`wavesolver` computes the mechanical, optical and piezoelectric modes of patterned membranes (Si slabs,
 LN-on-Si stacks), the optomechanical coupling g₀ between them, and the exact gradient of each of
 these quantities with respect to every pixel of the pattern. It is built for inverse design: the
 geometry enters every solver as a smooth solid-fraction map on a fixed grid, so nothing is remeshed
@@ -27,6 +27,7 @@ The recommended environment is [pixi](https://pixi.sh), because it installs CHOL
 from conda-forge. CHOLMOD has no PyPI wheels and makes the mechanical solves about 3× faster.
 
 ```bash
+git clone https://github.com/NelsonOoi/wavesolver.git && cd wavesolver
 pixi install                                        # linux-64, osx-arm64 or win-64
 pixi run python examples/01_mechanical_bands.py     # about 10 s
 ```
@@ -81,7 +82,7 @@ whatever the number of variables.
 - **Mechanical parity:** `"even"` means symmetric about the slab mid-plane (in-plane and breathing
   modes); `"odd"` means flexural.
 - **Optical parity:** `"even"` means TE-like (σ_z H = H).
-- **Materials** (`omc.materials`):
+- **Materials** (`wavesolver.materials`):
 
   | Name | Material |
   |---|---|
@@ -97,23 +98,23 @@ whatever the number of variables.
 
 | Task | Module and entry point |
 |---|---|
-| Lattices, polygon → fraction raster, tripod hole | `omc.geometry`: `HexLattice`, `Lattice2D`, `solid_fraction`, `blade_hole`, `tripod` |
-| Differentiable geometry: shape parameters or free-form pixels with a minimum feature size | `omc.parametrize`: `ParametricCell` + `TripodHole`, `DensityCell` (`fraction`, `fraction_vjp`, `feature_check`, `length_scale`) |
-| Mechanical Bloch bands (2D, 3D slab, LN/Si stack) | `omc.mech_bloch.BlochSolver` (`model="slab_p"` for membranes), `.solve(k)`, `.bands(ks, workers=…)` |
-| Mechanical band gradients, including degenerate clusters | `omc.mech_adjoint.sensitivities`; `BandPool` for parallel k-points |
-| Fast band sweeps and finite chains of cells (reduced-order models) | `omc.mech_rom.BlochROM` (`reproject` for new designs on a frozen basis), `ChainROM` (`set_cell`) |
-| Optical bands of a patterned slab (MPB's method) | `omc.optics_pwe`: `slab_cell`, `PWESolver` (`.solve`, `.bands`, `.solve_near` targeted, `.sensitivities`) |
-| Fast approximate optics with radiation loss Q_rad | `omc.optics_gme.GMESolver` (`.solve(target_thz=…)`, `.radiation`, `.gradient(quantity="freq" or "lnQ")`) |
-| Optomechanical g₀ (moving boundary + photoelastic) | `omc.coupling`: `optical_mode`, `mech_mode`, `g0` |
-| Adjoint gradient of g₀ | `omc.coupling_adjoint`: `g0_gradient`, `fine_total_gradient` |
-| Finite cavities (mechanics with absorbers, tight-binding envelopes) | `omc.cavity`: `chain_domain`, `mech_cavity`, `cavity_modes`; `omc.cavity_optics` |
-| Piezoelectric FEM (u, φ), admittance, k_eff², g_em to a resonator, gradients in angle and fractions | `omc.piezo.PiezoSolver` (`.eigenmodes`, `.admittance`, `.motional`, `.eigen_sensitivities`) |
-| Transducer system model (efficiency, noise, three-mode response) | `omc.system` |
-| One device-level figure of merit η with one combined adjoint | `omc.codesign.DeviceModel` |
-| Sparse factorisation backend (CHOLMOD or SuperLU) | `omc.linalg.factorize` |
+| Lattices, polygon → fraction raster, tripod hole | `wavesolver.geometry`: `HexLattice`, `Lattice2D`, `solid_fraction`, `blade_hole`, `tripod` |
+| Differentiable geometry: shape parameters or free-form pixels with a minimum feature size | `wavesolver.parametrize`: `ParametricCell` + `TripodHole`, `DensityCell` (`fraction`, `fraction_vjp`, `feature_check`, `length_scale`) |
+| Mechanical Bloch bands (2D, 3D slab, LN/Si stack) | `wavesolver.mech_bloch.BlochSolver` (`model="slab_p"` for membranes), `.solve(k)`, `.bands(ks, workers=…)` |
+| Mechanical band gradients, including degenerate clusters | `wavesolver.mech_adjoint.sensitivities`; `BandPool` for parallel k-points |
+| Fast band sweeps and finite chains of cells (reduced-order models) | `wavesolver.mech_rom.BlochROM` (`reproject` for new designs on a frozen basis), `ChainROM` (`set_cell`) |
+| Optical bands of a patterned slab (MPB's method) | `wavesolver.optics_pwe`: `slab_cell`, `PWESolver` (`.solve`, `.bands`, `.solve_near` targeted, `.sensitivities`) |
+| Fast approximate optics with radiation loss Q_rad | `wavesolver.optics_gme.GMESolver` (`.solve(target_thz=…)`, `.radiation`, `.gradient(quantity="freq" or "lnQ")`) |
+| Optomechanical g₀ (moving boundary + photoelastic) | `wavesolver.coupling`: `optical_mode`, `mech_mode`, `g0` |
+| Adjoint gradient of g₀ | `wavesolver.coupling_adjoint`: `g0_gradient`, `fine_total_gradient` |
+| Finite cavities (mechanics with absorbers, tight-binding envelopes) | `wavesolver.cavity`: `chain_domain`, `mech_cavity`, `cavity_modes`; `wavesolver.cavity_optics` |
+| Piezoelectric FEM (u, φ), admittance, k_eff², g_em to a resonator, gradients in angle and fractions | `wavesolver.piezo.PiezoSolver` (`.eigenmodes`, `.admittance`, `.motional`, `.eigen_sensitivities`) |
+| Transducer system model (efficiency, noise, three-mode response) | `wavesolver.system` |
+| One device-level figure of merit η with one combined adjoint | `wavesolver.codesign.DeviceModel` |
+| Sparse factorisation backend (CHOLMOD or SuperLU) | `wavesolver.linalg.factorize` |
 
-`omc.linedefect`, `omc.layout`, `omc.channel` and `omc.transducer` hold the line-defect, device
-layout, phononic channel and IDT builders used in the original project. `omc.layout` and
+`wavesolver.linedefect`, `wavesolver.layout`, `wavesolver.channel` and `wavesolver.transducer` hold the line-defect, device
+layout, phononic channel and IDT builders used in the original project. `wavesolver.layout` and
 `geometry.line_defect_supercell` need an external fab generator, `gpt_omc.py`, which is not
 included (see [Repository layout](#repository-layout)). Everything in the table above works without
 it.
@@ -134,11 +135,11 @@ The core pattern:
 
 ```python
 import numpy as np
-from omc.geometry import HexLattice, blade_hole, solid_fraction
-from omc.materials import SI
-from omc.mech_bloch import BlochSolver
-from omc.mech_adjoint import sensitivities
-from omc.optics_pwe import PWESolver, slab_cell
+from wavesolver.geometry import HexLattice, blade_hole, solid_fraction
+from wavesolver.materials import SI
+from wavesolver.mech_bloch import BlochSolver
+from wavesolver.mech_adjoint import sensitivities
+from wavesolver.optics_pwe import PWESolver, slab_cell
 
 lattice = HexLattice(0.448)                                    # a in µm
 f = solid_fraction(lattice, [blade_hole(0.172, 0.093, 0.025)], 32)
@@ -404,14 +405,14 @@ pixi run python validation/g0_gradient_check.py --quick
 ## Repository layout
 
 ```
-omc/          the solver package
+wavesolver/   the solver package
 examples/     four short, runnable recipes with gradient checks
 validation/   scripts behind the accuracy tables; reference/ holds small reference data
 docs/         piezoelectricity.md: a primer on LN piezoelectricity and its simulation pitfalls
 research/     (git-ignored) the original design studies, their results and notes
 ```
 
-`research/` stays on the original machine. Some docstrings in `omc/` cite scripts there as the
+`research/` stays on the original machine. Some docstrings in `wavesolver/` cite scripts there as the
 source of a number. Builders that need the fab generator `gpt_omc.py` import it on first use from
 the Python path, from `$GPT_OMC_PATH`, or from `research/`. Without it, those builders raise an
 `ImportError` that says so; nothing else depends on it.

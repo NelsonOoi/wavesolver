@@ -24,7 +24,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from omc.materials import x_cut  # noqa: E402
+from wavesolver.materials import x_cut  # noqa: E402
 
 OUT = ROOT / "validation/out"
 BLUE, ORANGE, AQUA = "#2a78d6", "#eb6834", "#1baf7a"
@@ -54,7 +54,7 @@ def main() -> None:
     print(label)
     for name, col in zip("XYZ", R.T):
         print(f"  crystal {name} → global {np.round(col, 3)}")
-    print(f"  c-axis at {phi_c:.1f}° from the spine; omc.materials.x_cut({match[0] if match else '?'})")
+    print(f"  c-axis at {phi_c:.1f}° from the spine; wavesolver.materials.x_cut({match[0] if match else '?'})")
 
     rows = np.load(OUT / "piezo_plate_k2.npz")["rows"]
     theta = rows[:, 0]

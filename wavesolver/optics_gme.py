@@ -30,7 +30,7 @@ The raster is read as pixels (piecewise constant), so its Fourier coefficients
 and the plane-wave cutoff are independent.
 
 z-symmetry. With identical claddings σ_z separates the basis: parity "even" (TE-like, as
-omc.optics_pwe: σ_z H = H, in-plane E even in z) keeps TE_m with m even and TM_m with m odd;
+wavesolver.optics_pwe: σ_z H = H, in-plane E even in z) keeps TE_m with m even and TM_m with m odd;
 "odd" (TM-like) the others. n_te, n_tm are the number of TE and TM orders kept in the sector
 (TE-like: TE0, TE2, … and TM1, TM3, …).
 
@@ -73,7 +73,7 @@ preconditioned by the shift-invert LU, or a dense solve), then one reverse pass 
 ∂/∂fill [Im λ + (∂Im λ/∂λ) cᴴMc − 2 Re wᴴ M c].
 
 Fields. `curl_h_on_cell` evaluates e = ∇×H (∝ D, periodic part, as PWESolver.curl_h) on the
-voxels of an omc.optics_pwe.SlabCell, for omc.coupling.optical_mode_from_field. In voxels cut
+voxels of an wavesolver.optics_pwe.SlabCell, for wavesolver.coupling.optical_mode_from_field. In voxels cut
 by the slab faces e_∥ is ⟨ε⟩_z E_∥ (E_∥ continuous), as the Kottke tensor of the cell expects.
 `fields_on_cell` also returns GME's own E = η D. `curl_h` evaluates on any lattice grid.
 
@@ -1060,7 +1060,7 @@ class GMESolver:
         E = η D in the core (η of the eigenproblem, e.g. the inverse rule), D/ε_c in the claddings;
         in face voxels E_∥ from the core side (continuous) and E_z = g (ηD_z)_core + (1 − g) D_z/ε_c.
         With these, the Kottke-consistent field e_c = n(n·e) + ⟨ε⟩(E − n(n·E)) (cell normals n, as
-        for meep fields in research/cavity_gpt07_g0.py) is what omc.coupling's voxel sensitivity
+        for meep fields in research/cavity_gpt07_g0.py) is what wavesolver.coupling's voxel sensitivity
         expects; see research/gme_g0.py.
         """
         n1, n2, nz = cell.eps.shape
@@ -1094,7 +1094,7 @@ class GMESolver:
     def curl_h_on_cell(self, res: GMEResult, band: int, cell) -> np.ndarray:
         """
         e ∝ D (3, N1, N2, N3) on the voxels of an optics_pwe.SlabCell on the same lattice (any
-        in-plane grid), for omc.coupling.optical_mode_from_field. Full core and cladding voxels
+        in-plane grid), for wavesolver.coupling.optical_mode_from_field. Full core and cladding voxels
         get D; in voxels cut by a slab face the in-plane part is ⟨ε⟩_z E_∥ (E_∥ continuous;
         ⟨ε⟩_z = g ε̄ + (1 − g) ε_c of the effective slab) and the normal part D_z.
         """

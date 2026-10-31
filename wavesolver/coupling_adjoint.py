@@ -1,8 +1,8 @@
 """
-Adjoint gradient of the optomechanical vacuum coupling g0 (omc.coupling) with respect to the
+Adjoint gradient of the optomechanical vacuum coupling g0 (wavesolver.coupling) with respect to the
 solid-fraction maps that build the geometry.
 
-g0 as omc.coupling computes it depends on three in-plane rasters, treated here as independent
+g0 as wavesolver.coupling computes it depends on three in-plane rasters, treated here as independent
 inputs (they are tied together only by how the caller builds them):
 
 - f_o (N1, N2): the optical fill the PWESolver's cell was built from (slab_cell: Kottke ε⁻¹
@@ -15,7 +15,7 @@ inputs (they are tied together only by how the caller builds them):
 `g0_gradient` returns ∂g0/∂f_o, ∂g0/∂f_m and ∂g0/∂f_fine at a solved pair of modes.
 `fine_total_gradient` chains them onto f_fine when, as coupling.py intends, f_o and f_m are
 block means of f_fine (f_o = block_mean(f_fine, N1, N2), f_m = block_mean(f_fine, n1, n2)); a
-shape parameter θ then follows from the raster's Jacobian (omc.parametrize).
+shape parameter θ then follows from the raster's Jacobian (wavesolver.parametrize).
 
 Method. Write g0 = L(x, û; f) · x_zpf with L = ω_o (δω/ω per unit amplitude) the optical
 frequency pull per metre of mechanical amplitude, linear in û, and x_zpf = √(ħ / 2 m Ω_m),
@@ -370,7 +370,7 @@ def optomech_functional(
       gfine: ∂L/∂f_fine (moving-boundary raster, explicit);
       gfm: ∂L/∂(mode.fraction) (strain fraction weighting, explicit);
       d_opt: dL/df_o including the optical eigenvector (one MINRES; only with adjoint).
-    g0 = L x_zpf. Used by `g0_gradient` (BlochSolver) and omc.codesign (PiezoSolver modes).
+    g0 = L x_zpf. Used by `g0_gradient` (BlochSolver) and wavesolver.codesign (PiezoSolver modes).
     to_mode: the optical cell is a window of the mode's domain (see `_mech_tables`; gfm is then
     on the whole mechanical grid, gfine on the window's raster). minres_jax: the optical adjoint
     by PWESolver.adjoint_solve(jax=True).

@@ -30,9 +30,9 @@ import scipy.io as sio
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from omc.geometry import HexLattice, blade_hole, solid_fraction  # noqa: E402
-from omc.materials import SI_ISOTROPIC  # noqa: E402
-from omc.mech_bloch import BlochSolver  # noqa: E402
+from wavesolver.geometry import HexLattice, blade_hole, solid_fraction  # noqa: E402
+from wavesolver.materials import SI_ISOTROPIC  # noqa: E402
+from wavesolver.mech_bloch import BlochSolver  # noqa: E402
 
 # The COMSOL band export is not distributed with the repository; pass its path as the first argument.
 REFERENCE = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "validation/reference/Blade_UC_mech_bands_results_20240911T084423.mat"

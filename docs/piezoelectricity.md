@@ -2,7 +2,7 @@
 
 A working primer: the physics, the conventions that silently break simulations, and what
 matters specifically for a 250 nm X-cut LN on 220 nm Si transducer feeding a 4 GHz
-optomechanical crystal. Numbers quoted are from this repo's material data (`omc.materials.LN_PIEZO`)
+optomechanical crystal. Numbers quoted are from this repo's material data (`wavesolver.materials.LN_PIEZO`)
 unless stated otherwise.
 
 Contents
@@ -53,7 +53,7 @@ measured under a different condition, and **mixing them is the single most commo
 
 | Form | Equations | Tensors | Used by |
 |---|---|---|---|
-| stress-charge | T = C^E S − eᵀE,  D = eS + ε^S E | C^E, e, ε^S | FEM (COMSOL, `omc.piezo`) |
+| stress-charge | T = C^E S − eᵀE,  D = eS + ε^S E | C^E, e, ε^S | FEM (COMSOL, `wavesolver.piezo`) |
 | strain-charge | S = s^E T + dᵀE,  D = dT + ε^T E | s^E, d, ε^T | data sheets, actuators |
 | stress-voltage | T = C^D S − hᵀD,  E = −hS + β^S D | C^D, h, β^S | rarely |
 | strain-voltage | S = s^D T + gᵀD,  E = −gT + β^T D | s^D, g, β^T | sensors |
@@ -85,7 +85,7 @@ H(S,E) = \tfrac12 S\cdot C^E S - E\cdot e S - \tfrac12 E\cdot\varepsilon^S E,
 \qquad T = \partial H/\partial S,\quad D = -\partial H/\partial E .
 $$
 
-Its stationarity gives the symmetric but indefinite (u, φ) FEM system used in `omc.piezo`.
+Its stationarity gives the symmetric but indefinite (u, φ) FEM system used in `wavesolver.piezo`.
 The −½E·εE term is why the φ-block has a negative sign. As a consequence, the system is not
 positive definite, and an LDLᵀ or LU solver is needed instead of Cholesky.
 
@@ -515,15 +515,15 @@ little about mK Q.
 - [ ] **Time convention**: e^{iωt} (COMSOL, this repo) needs Im < 0 for loss. Absorbers written for e^{−iωt} become gain, which is easy to miss when porting an absorber from another code.
 - [ ] **Reciprocity and symmetry checks**: Y₁₂ = Y₂₁. A Hermitian system without loss. e = 0 reproduces the purely mechanical solver. Cheap and catches most assembly bugs.
 - [ ] **Multimode**: a high k_eff² of the target mode means little if neighbouring modes also couple. Look at the admittance spectrum, not one eigenvalue.
-- [ ] **Degeneracies**: sensitivities of degenerate clusters need subspace treatment. `omc.piezo` averages them.
+- [ ] **Degeneracies**: sensitivities of degenerate clusters need subspace treatment. `wavesolver.piezo` averages them.
 - [ ] **Material data**: a few percent between datasets, plus thin-film and cryogenic shifts. Do not over-optimise below that tolerance; use robustness (eroded/dilated) instead.
 
 ## 15. Where this lives in the repo
 
 | Concept | Code |
 |---|---|
-| Constitutive data, rotations, Bond matrix | `omc/materials.py` (`LN_PIEZO`, `x_cut`, `rotate_piezo`, `bond`) |
-| (u, φ) FEM, electrodes, k_eff², admittance, PML, sensitivities | `omc/piezo.py` (`PiezoSolver`, `PiezoLayer`, `Electrode`) |
+| Constitutive data, rotations, Bond matrix | `wavesolver/materials.py` (`LN_PIEZO`, `x_cut`, `rotate_piezo`, `bond`) |
+| (u, φ) FEM, electrodes, k_eff², admittance, PML, sensitivities | `wavesolver/piezo.py` (`PiezoSolver`, `PiezoLayer`, `Electrode`) |
 | Thin-plate S0/SH0 k² vs angle (analytic + FEM) | `validation/piezo_plate_k2.py` |
 | Orientation picture, spine vs crystal axes | `validation/ln_orientation.py` |
 | Angle optimisation of an IDT cell | `validation/piezo_angle.py` |

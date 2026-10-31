@@ -482,7 +482,7 @@ class PWESolver:
         """
         ∂λ/∂F (eigenvalue (ω/c)² in (rad/µm)² per unit fill) of one band of the last solve,
         w.r.t. the 3D voxel fill F (N1, N2, N3) of the cell, for a perturbation δF that is not
-        of the extruded form f(x, y) g(z) (e.g. δF = −u·∇F of a moving boundary, omc.coupling).
+        of the extruded form f(x, y) g(z) (e.g. δF = −u·∇F of a moving boundary, wavesolver.coupling).
 
         The same derivation as `sensitivities`, before the sum over z: slab_cell's ∇F equals
         the 3D periodic central differences of F (in-plane ones of f times g, f times the z
@@ -522,7 +522,7 @@ class PWESolver:
         Linear response of one band of the last solve: w with (Θ − λ) w = r, w ⊥ x (x the
         band's unit eigenvector, λ its Ritz value), where r is rhs (flat, as `last_vectors`'
         columns) projected onto the chosen z-parity and off x. This is the adjoint system of
-        any functional of the eigenvector (omc.coupling_adjoint): if dJ = Re(rᴴ dx) for an
+        any functional of the eigenvector (wavesolver.coupling_adjoint): if dJ = Re(rᴴ dx) for an
         eigenvector change dx, then dJ = −Re(wᴴ dΘ x) for a change dΘ of the operator.
 
         Θ − λ is Hermitian and indefinite on the deflated subspace, so MINRES is used, on the

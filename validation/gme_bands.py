@@ -29,8 +29,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from omc.geometry import HexLattice, blade_hole, gpt_omc, line_defect_supercell, solid_fraction  # noqa: E402
-from omc.optics_gme import GMESolver, light_line_thz  # noqa: E402
+from wavesolver.geometry import HexLattice, blade_hole, gpt_omc, line_defect_supercell, solid_fraction  # noqa: E402
+from wavesolver.optics_gme import GMESolver, light_line_thz  # noqa: E402
 
 OUT = ROOT / "validation/out"
 PWE_REF = {("defect", 4): 187.74, ("defect", 6): 187.72, ("mirror", 6): 204.8, ("mirror", 4): 204.8}

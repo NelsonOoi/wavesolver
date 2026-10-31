@@ -1,5 +1,5 @@
 """
-Finite-difference check of the adjoint g0 gradient (omc.coupling_adjoint.g0_gradient).
+Finite-difference check of the adjoint g0 gradient (wavesolver.coupling_adjoint.g0_gradient).
 
 Case (default): blade cell (a = 448 nm, r = 172 nm, w = 93 nm, 25 nm fillet), cubic Si with
 [100] ∥ x (materials.SI, SI_P unrotated). Optics N × N × NZ at M (TE-like); mechanics slab_p
@@ -12,7 +12,7 @@ difference of coupling.g0 after re-solving both eigenproblems from scratch:
   - f_m only (mechanics re-solved), smooth and edge (also m_eff at the fixed peak point, and f_m);
   - f_fine only (explicit moving-boundary raster);
   - all three together through the block means (f_o, f_m = block means of f_fine);
-  - shape parameters r, w of omc.parametrize.ParametricCell(TripodHole) through the raster.
+  - shape parameters r, w of wavesolver.parametrize.ParametricCell(TripodHole) through the raster.
 Smooth directions are restricted to where the mechanics keeps elements, so no element crosses
 the solver's min_fraction (dropped elements have zero gradient by construction). The sign of
 the mechanical mode is fixed by its overlap with the unperturbed one.
@@ -51,14 +51,14 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from omc.coupling import block_mean, g0 as g0_value, mech_mode, optical_mode  # noqa: E402
-from omc.coupling_adjoint import fine_total_gradient, g0_gradient  # noqa: E402
-from omc.geometry import HexLattice, blade_hole, line_defect_supercell, solid_fraction  # noqa: E402
-from omc.materials import SI, SI_P  # noqa: E402
-from omc.mech_adjoint import find_clusters  # noqa: E402
-from omc.mech_bloch import BlochSolver  # noqa: E402
-from omc.optics_pwe import PWESolver, slab_cell  # noqa: E402
-from omc.parametrize import ParametricCell, TripodHole  # noqa: E402
+from wavesolver.coupling import block_mean, g0 as g0_value, mech_mode, optical_mode  # noqa: E402
+from wavesolver.coupling_adjoint import fine_total_gradient, g0_gradient  # noqa: E402
+from wavesolver.geometry import HexLattice, blade_hole, line_defect_supercell, solid_fraction  # noqa: E402
+from wavesolver.materials import SI, SI_P  # noqa: E402
+from wavesolver.mech_adjoint import find_clusters  # noqa: E402
+from wavesolver.mech_bloch import BlochSolver  # noqa: E402
+from wavesolver.optics_pwe import PWESolver, slab_cell  # noqa: E402
+from wavesolver.parametrize import ParametricCell, TripodHole  # noqa: E402
 
 T, N_SI = 0.22, 3.48
 OUT = ROOT / "validation/out"

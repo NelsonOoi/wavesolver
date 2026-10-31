@@ -22,8 +22,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from omc.geometry import HexLattice, blade_hole, solid_fraction  # noqa: E402
-from omc.optics_pwe import PWESolver, light_line_thz, slab_cell  # noqa: E402
+from wavesolver.geometry import HexLattice, blade_hole, solid_fraction  # noqa: E402
+from wavesolver.optics_pwe import PWESolver, light_line_thz, slab_cell  # noqa: E402
 
 A, T, HEIGHT, N_SI = 0.448, 0.22, 2.0, 3.48
 N_BANDS = 6

@@ -1,6 +1,6 @@
 """
-Optomechanical vacuum coupling g0 between an optical Bloch mode (omc.optics_pwe, TE-like) and a
-mechanical Bloch mode (omc.mech_bloch, "slab_p") on the same patterned slab.
+Optomechanical vacuum coupling g0 between an optical Bloch mode (wavesolver.optics_pwe, TE-like) and a
+mechanical Bloch mode (wavesolver.mech_bloch, "slab_p") on the same patterned slab.
 
 A mechanical mode of amplitude x displaces the material by x·û(r), with û normalised to
 max|û| = 1. To first order the optical frequency moves by δω = (∂ω/∂x) x, and
@@ -69,7 +69,7 @@ from .mech_bloch import BlochSolver
 from .optics_pwe import C_UM_PER_PS, PWESolver, SlabCell
 
 HBAR = 1.054571817e-34  # J s
-MASS_UNIT = 1e-15  # kg: density 1e3 kg/m³ times µm³ (omc.mech_bloch units)
+MASS_UNIT = 1e-15  # kg: density 1e3 kg/m³ times µm³ (wavesolver.mech_bloch units)
 
 
 # --- mechanical mode as a field ------------------------------------------------------------

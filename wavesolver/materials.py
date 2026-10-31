@@ -95,7 +95,7 @@ def x_cut(angle_deg: float) -> np.ndarray:
 LN = Elastic("LiNbO3", trigonal_3m(2.03e11, 0.53e11, 0.75e11, 0.09e11, 2.45e11, 0.60e11), 4700.0)
 
 
-# --- Piezoelectric materials (appended for omc.piezo) -------------------------------------
+# --- Piezoelectric materials (appended for wavesolver.piezo) -------------------------------------
 #
 # Stress-charge form: T = C^E S - e^T E, D = e S + ε^S E, with e the 3 × 6 piezoelectric
 # stress constants (C/m²) in the Voigt order above and ε^S the clamped permittivity. Under a
@@ -187,7 +187,7 @@ AL_COMSOL = Elastic("Al (COMSOL)", isotropic(70e9, 0.33), 2700.0)
 SI_EPS_R = 11.7
 
 
-# --- Photoelastic constants (appended for omc.coupling) -----------------------------------
+# --- Photoelastic constants (appended for wavesolver.coupling) -----------------------------------
 #
 # Δ(ε⁻¹)_I = p_IJ S_J in the Voigt order above, with engineering shear strains (S_4 = 2 S_yz)
 # and no factors of 2 on the impermeability, so p_IJ = p_ijkl and p rotates exactly as a
@@ -195,10 +195,10 @@ SI_EPS_R = 11.7
 # Si at 1550 nm (Biegelsen 1974 values, as used in the user's COMSOL g0 models). On a (001)
 # wafer, rot_z(45) puts [110] along lab x; for a cubic crystal rot_z(-45) is the same tensor.
 SI_P = cubic(-0.094, 0.017, -0.051)
-SI_N_OPT = 3.48  # refractive index at 1550 nm, as in omc.optics_pwe benchmarks
+SI_N_OPT = 3.48  # refractive index at 1550 nm, as in wavesolver.optics_pwe benchmarks
 
 
-# --- Orientation derivatives (appended for omc.piezo sensitivities) -----------------------
+# --- Orientation derivatives (appended for wavesolver.piezo sensitivities) -----------------------
 
 
 def x_cut_derivative(angle_deg: float) -> np.ndarray:

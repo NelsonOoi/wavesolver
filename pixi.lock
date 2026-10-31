@@ -6847,7 +6847,7 @@ packages:
   size: 387535
   timestamp: 1786599623274
 - pypi: ./
-  name: omc
+  name: wavesolver
   requires_dist:
   - numpy>=2.0
   - scipy>=1.14

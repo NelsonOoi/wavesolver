@@ -25,7 +25,7 @@ scale (s = 0 removes the hole: a solid strip), plus optional extra slots. x_axis
 of every row in a band of width a (alternately at −a/4 and +a/4: a zig-zag of removed holes, the
 Γ–M analogue of a W1 waveguide).
 
-Option B — `LineChannel`: a cell of the line-defect supercell (omc.linedefect.LineDefectLayout, one
+Option B — `LineChannel`: a cell of the line-defect supercell (wavesolver.linedefect.LineDefectLayout, one
 period a along x, the defect region |y| < W/2), given as a fine raster as the cavity chain's cells.
 Along x the light line at X is c/(2a) ≈ 229 THz > 193 THz, so a B channel *must* have a TE mode gap
 at the cavity frequency (it continues the cavity's far mirror), while carrying the σ_y-even, z-even
@@ -60,7 +60,7 @@ C_UM_THZ = 299.792458
 @dataclass
 class VerticalChannel:
     """
-    Option-A channel cell (see the module docstring). crystal: omc.layout.Crystal (shield, W,
+    Option-A channel cell (see the module docstring). crystal: wavesolver.layout.Crystal (shield, W,
     x_shift). n_cols: supercell width in lattice constants (shield on both sides). x_axis: lab x of
     the channel axis. band: width of the band of channel sites (default a: one site per row when
     x_axis is a quarter period off a site). scale: hole scale on the channel sites (0 removes them).
@@ -145,7 +145,7 @@ class VerticalChannel:
         return np.repeat((np.abs(x) < hw)[:, None], n2, axis=1)
 
     def layout_channel(self, n_sep: int, per_a: int = 64, half_width: float | None = None) -> ChannelA:
-        """The omc.layout.ChannelA of this cell (fine raster per_a per a)."""
+        """The wavesolver.layout.ChannelA of this cell (fine raster per_a per a)."""
         n1, n2 = self.grid(per_a)
         hw = self.band / 2 + self.a / 2 if half_width is None else half_width
         return ChannelA(self.fraction(n1, n2), self.Lx, self.x_axis, hw, n_sep)
@@ -158,7 +158,7 @@ class VerticalChannel:
 class LineChannel:
     """
     Option-B channel cell: a fine raster (F1, F2) of the line-defect supercell `layout`
-    (omc.linedefect.LineDefectLayout). `mech(n_cell)` block-means it to the mechanical grid.
+    (wavesolver.linedefect.LineDefectLayout). `mech(n_cell)` block-means it to the mechanical grid.
     """
 
     layout: object
@@ -237,7 +237,7 @@ def rom_bands(lattice, fraction: np.ndarray, material, ks: np.ndarray, kpar: np.
               window_hz: tuple[float, float], parity: str = "even", order: int = 4, sigma_hz: float = F_M,
               n_residual=(240, 60), n_fixed: int = 100, n_interior: int = 100, rom=None, verbose: bool = True):
     """
-    Bands of a supercell in window_hz by Bloch mode synthesis (omc.mech_rom.BlochROM shifted to
+    Bands of a supercell in window_hz by Bloch mode synthesis (wavesolver.mech_rom.BlochROM shifted to
     sigma_hz), with the localisation of each mode in `mask` (pixels). Returns (ChannelBands, rom).
     """
     from .mech_rom import BlochROM
@@ -273,7 +273,7 @@ def tb_complex_k(f: float, f_edge: float, f_far: float, period: float) -> float:
     """
     Im k (1/µm) at frequency f in the gap above (or below) a band f(k) = e + 2t cos(k·period) with
     band edge f_edge at the zone edge or centre and the other end f_far: cosh(κ·period) = |f − e|/(2|t|)
-    measured from the band edge side (the tight-binding continuation of omc.linedefect.complex_k).
+    measured from the band edge side (the tight-binding continuation of wavesolver.linedefect.complex_k).
     """
     e = (f_edge + f_far) / 2
     t = abs(f_edge - f_far) / 4
