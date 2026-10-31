@@ -7,7 +7,8 @@ geometry enters every solver as a smooth solid-fraction map on a fixed grid, so 
 and every result is differentiable.
 
 On a unit cell, the mechanical solver matches COMSOL to about 0.25 % and needs 40–50× fewer
-core-seconds per k-point. Its gradients cost less than one extra solve. Details are under
+core-seconds per k-point. The optics solver reproduces MPB to 0.1 % and is about 4× faster in
+wall time than COMSOL. Gradients cost less than one extra solve. Details are under
 [Performance against COMSOL](#performance-against-comsol) and [Accuracy](#accuracy).
 
 The code is plain Python (NumPy, SciPy, JAX), runs on a CPU, and is MIT-licensed.
@@ -287,6 +288,29 @@ Other measured costs:
    almost perfect scaling. A threaded direct solve of 65k unknowns gains far less from 8 threads.
 5. **No remeshing.** The fixed grid makes each band a smooth function of the design, with no mesh
    noise in the objective.
+
+**How the PWE optics solver works, and why it is fast:**
+
+1. **Matrix-free operator.** H is expanded in plane waves with two transverse amplitudes each,
+   so ∇·H = 0 holds exactly and there are no spurious modes. Applying Θ = ∇ × ε⁻¹ ∇ × costs
+   two FFTs per field component and a pointwise 3 × 3 multiply; no matrix is ever stored.
+2. **Subpixel smoothing.** Voxels cut by an interface get Kottke's anisotropic ε⁻¹ tensor, so a
+   coarse grid (24–32 per lattice vector) already gives 0.1 % frequencies, and they vary
+   smoothly with the fill.
+3. **Mirror symmetry.** A projection onto one z-parity (σ_z-even, TE-like) removes the other
+   family, so the lowest bands are the ones you want.
+4. **MPB's preconditioner.** The same curl chain with ε in place of ε⁻¹ and 1/|q| in place of
+   |q| approximates Θ⁻¹ and keeps the iteration count low: 11–23 per k-point along a path at the
+   default `tol=1e-2`, about 40 from a cold start at the gradient setting `tol=1e-8`.
+5. **One compiled eigensolver.** The operator, the preconditioner and the whole LOBPCG loop
+   (Rayleigh–Ritz on [X, W, P], orthonormalised through the Gram matrix's eigendecomposition)
+   are one jitted JAX program. XLA fuses the pointwise passes around the FFTs, and no data
+   returns to Python between iterations.
+6. **Only the requested bands must converge.** Two guard bands above them speed up convergence
+   but are not waited for; they were the slowest to converge and most of the earlier cost.
+7. **Warm starts along a path.** Each k-point starts from the previous one's modes.
+8. **Gradients from the fields.** ∂λ/∂ε⁻¹ is a pointwise product of the mode's curl fields, so
+   the gradient with respect to every pixel costs one pass over the grid, not another solve.
 
 ## Accuracy
 

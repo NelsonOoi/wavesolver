@@ -14,6 +14,14 @@ curl again. Θ is Hermitian, so the lowest bands come from a block eigensolver (
 MPB's approximate-inverse preconditioner, which applies the same chain with ε in place of ε⁻¹
 and 1/|q| in place of |q|.
 
+The operator, the preconditioner and the whole LOBPCG iteration are one jitted JAX program
+(_lobpcg_jit, a lax.while_loop): XLA fuses the elementwise passes around the FFTs and no data
+returns to Python between iterations. Two guard bands above the requested ones speed up
+convergence, but only the requested bands must reach tol. Each k-point starts from the previous
+one's modes. On a CPU the cost is bound by memory bandwidth (each Θ application streams the
+field block and the six ε⁻¹ components through several FFTs), so `bands(ks, workers=…)` gains
+up to about 4 processes and no more.
+
 Interfaces that cut a voxel use the anisotropic average of Kottke et al. (PRE 77, 036611):
 ε⁻¹ = ⟨ε⁻¹⟩ n nᵀ + ⟨ε⟩⁻¹ (1 − n nᵀ), with n the local interface normal. Fill fractions come
 from the in-plane solid fraction (geometry.solid_fraction) times the slab's coverage of each z
