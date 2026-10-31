@@ -103,7 +103,7 @@ whatever the number of variables.
 | Mechanical Bloch bands (2D, 3D slab, LN/Si stack) | `wavesolver.mech_bloch.BlochSolver` (`model="slab_p"` for membranes), `.solve(k)`, `.bands(ks, workers=…)` |
 | Mechanical band gradients, including degenerate clusters | `wavesolver.mech_adjoint.sensitivities`; `BandPool` for parallel k-points |
 | Fast band sweeps and finite chains of cells (reduced-order models) | `wavesolver.mech_rom.BlochROM` (`reproject` for new designs on a frozen basis), `ChainROM` (`set_cell`) |
-| Optical bands of a patterned slab (MPB's method) | `wavesolver.optics_pwe`: `slab_cell`, `PWESolver` (`.solve`, `.bands`, `.solve_near` targeted, `.sensitivities`) |
+| Optical bands of a patterned slab (MPB's method) | `wavesolver.optics_pwe`: `slab_cell`, `PWESolver` (`.solve`, `.bands(ks, workers=4)`, `.solve_near` targeted, `.sensitivities`) |
 | Fast approximate optics with radiation loss Q_rad | `wavesolver.optics_gme.GMESolver` (`.solve(target_thz=…)`, `.radiation`, `.gradient(quantity="freq" or "lnQ")`) |
 | Optomechanical g₀ (moving boundary + photoelastic) | `wavesolver.coupling`: `optical_mode`, `mech_mode`, `g0` |
 | Adjoint gradient of g₀ | `wavesolver.coupling_adjoint`: `g0_gradient`, `fine_total_gradient` |
@@ -121,7 +121,7 @@ it.
 
 ### Recipes
 
-The four scripts in `examples/` are short, run in 3–70 s, and finish with a gradient check against
+The four scripts in `examples/` are short, run in 3–35 s, and finish with a gradient check against
 finite differences. Run them first to confirm that the install works.
 
 | Example | Shows |
@@ -152,7 +152,7 @@ s = sensitivities(mech, ks[corners[1]], n_bands=10)            # s.dfreq[layer, 
 
 # Optics: THz. The supercell is 1.5 µm tall with 64 z samples, and the Si index is 3.48.
 opt = PWESolver(slab_cell(lattice, f, 0.22, 1.5, 64, 3.48**2), parity="even")
-f_opt = opt.bands(ks, n_bands=6)
+f_opt = opt.bands(ks, n_bands=6, workers=4)                  # more workers than about 4 do not help (memory bandwidth)
 opt.solve(ks[corners[1]], 6, tol=1e-8)
 df_dfill = opt.sensitivities([0])[0]                           # THz per unit fill, (n, n)
 ```
@@ -165,7 +165,9 @@ dq/dθ. Example 03 does this end to end for g₀.
 
 - **Threads.** Set `OMP_NUM_THREADS=1` (and `OPENBLAS_`/`VECLIB_MAXIMUM_THREADS`) before NumPy is
   imported. Get parallelism from `workers=` or from separate processes per k-point: ARPACK runs
-  several times slower when BLAS threads compete.
+  several times slower when BLAS threads compete. For the mechanics, use about one worker per
+  core. For the PWE optics, use about 4: one process already runs several XLA threads, and more
+  workers only compete for memory bandwidth.
 - **Windows.** The MKL BLAS shipped in the win-64 env crashes silently (exit code 127) unless
   `MKL_THREADING_LAYER=SEQUENTIAL` is set. Set `PYTHONUTF8=1` too, because logs contain Greek
   letters. `pixi run` sets both.
@@ -193,17 +195,19 @@ dq/dθ. Example 03 does this end to end for g₀.
 ## Performance against COMSOL
 
 These are unit-cell timings for one free-form phoxonic cell (a = 621.5 nm, 220 nm cubic Si slab),
-per k-point and per parity. They were measured on an AMD Ryzen 9 7950X while two COMSOL jobs shared
-the CPU, so all numbers are somewhat high. The COMSOL model uses the same cell, from the smooth
-exported outline, with a Floquet unit cell and the mid-plane symmetry.
+per k-point and per parity, on an AMD Ryzen 9 7950X. The FEM and COMSOL rows were measured while two
+COMSOL jobs shared the CPU, so those numbers are somewhat high. The PWE rows were measured on an idle
+machine: 3 bands warm-started along the path at the optimisation grid, 6 at the verification grid.
+The COMSOL model uses the same cell, from the smooth exported outline, with a Floquet unit cell and
+the mid-plane symmetry.
 
 | Solver | Unknowns | Time per k-point | Cores |
 |---|---|---|---|
 | `BlochSolver`, `slab_p`, n = 32 (optimisation mesh) | 4,928 / 4,312 | **0.15 / 0.11 s** | 1 |
 | `BlochSolver`, `slab_p`, n = 96 (verification mesh) | 37,576 / 32,879 | **2.3 / 1.6 s** | 1 |
 | COMSOL solid mechanics, quadratic tetrahedra, hmax = t/7.5 | 65,565 | 10–15 s | 8 |
-| `PWESolver`, 32 × 32 × 64, 1.5 µm supercell | 131,072 | 6 s | 1 process |
-| `PWESolver`, 32 × 32 × 128, 2.0 µm supercell | 262,144 | 13 s | 1 process |
+| `PWESolver`, 32 × 32 × 64, 1.5 µm supercell | 131,072 | **0.63 s** | 1 process (XLA threads) |
+| `PWESolver`, 32 × 32 × 128, 2.0 µm supercell | 262,144 | **2.5 s** | 1 process (XLA threads) |
 | COMSOL electromagnetic waves, hmax = t/6 (Si), t_air/10 (air) | 89,100 | 10 s | 8 |
 
 **Mechanics.**
@@ -212,27 +216,43 @@ exported outline, with a Floquet unit cell and the mid-plane symmetry.
   faster in wall time on 1 core than COMSOL on 8 cores. That is **40–50× fewer core-seconds**.
 - At the optimisation mesh it is about **100× faster in wall time**.
 
-**Optics.** The PWE takes about as long per k-point as COMSOL, though on 1 process rather than 8.
-It is used because:
+**Optics.** At the verification grid the PWE is about **4× faster in wall time** than COMSOL on
+8 cores (2.5 s against 10 s per k-point), in one process. It is used mainly because:
 
 - its gradients are nearly free;
 - its frequencies depend smoothly on the fill;
 - it reproduces MPB to 0.1 %.
 
-Optics timings in more detail. Hardware differs between rows; the MPB comparison was a single run
-on a heavily loaded Apple M1, and the rest are on the 7950X.
+Its eigensolver (LOBPCG with MPB's preconditioner) runs entirely in compiled JAX. It stops when
+the requested bands converge, not the two extra guard bands. Against the earlier version, which
+drove SciPy's LOBPCG from Python, it gives the same frequencies (to 1e-9 or better) and is:
+
+| Case | Previous (SciPy LOBPCG) | Now | Speedup |
+|---|---|---|---|
+| Free-form cell, 32 × 32 × 64, 3 bands, warm path | 2.68 s per k-point | 0.63 s | 4.2× |
+| Free-form cell, 32 × 32 × 128, 6 bands, warm path | 11.8 s per k-point | 2.5 s | 4.7× |
+| Tripod cell, 24 × 24 × 64, `tol=1e-8` (gradient setting) | 6.8 s | 1.5 s | 4.4× |
+| Tripod cell, 32 × 32 × 128, 8 bands, cold start | 32 s | 12 s | 2.7× |
+| Tripod cell, 43-point Γ–M–K–Γ path, 6 bands, `bands(ks, workers=4)` | 128 s | 23 s | 5.5× |
+
+**The PWE is limited by memory bandwidth on a CPU, not by cores.** One process already uses
+several XLA threads. `bands(ks, workers=4)` pins worker processes to separate CPUs and gains a
+further 1.6× on a 16-core desktop. With 8 or more workers, each one slows down 3–4× and the total
+gets worse, because they share the same memory bandwidth.
+
+Other optics timings. Hardware differs between rows; the MPB comparison was a single run of the
+previous eigensolver on a heavily loaded Apple M1, and the rest are on the 7950X.
 
 | Solver and case | Time | Reference |
 |---|---|---|
-| PWE, tripod cell, 24 × 24 × 64 (`examples/02`) | 2.5 s per k-point | — |
-| PWE, tripod cell, resolution matched to MPB | 33 s per k-point | MPB 1.35: 58 s |
-| PWE, line-defect supercell, band edge | 112–265 s | — |
-| GME, tripod cell, g = 5, 128² raster (`gme_bands.py`) | 0.07–0.11 s per k-point | PWE: 6–13 s per k-point |
-| GME, line-defect supercell, band edge | 1.7 s + 3.2 s for the gradient | PWE: 112–265 s |
+| PWE (previous eigensolver), tripod cell, resolution matched to MPB | 33 s per k-point | MPB 1.35: 58 s |
+| PWE (previous eigensolver), line-defect supercell, band edge | 112–265 s | — |
+| GME, tripod cell, g = 5, 128² raster (`gme_bands.py`) | 0.07–0.11 s per k-point | PWE: 0.6–2.5 s per k-point |
+| GME, line-defect supercell, band edge | 1.7 s + 3.2 s for the gradient | PWE (previous eigensolver): 112–265 s |
 | GME, finite cavity, 13 columns × 2 rows | 40 s | 3D FDTD (meep): 21 min |
 
-GME is about 100× faster than PWE but accurate only to about ±1 % (see [Limits](#limits)). Use it to
-screen designs, then verify with PWE.
+GME is about an order of magnitude faster than PWE but accurate only to about ±1 % (see
+[Limits](#limits)). Use it to screen designs, then verify with PWE.
 
 **Gradients are where the gap becomes decisive.** One adjoint solve gives the derivative of a band
 with respect to every pixel. Take one robust free-form optimisation step:
@@ -247,7 +267,7 @@ Other measured costs:
 
 | Quantity | Forward | Gradient | Reference |
 |---|---|---|---|
-| g₀ on a unit cell, all pixels (`examples/03`) | 21 s (both eigenproblems, pair search) | 0.9 s | one central difference = 2 forward solves per variable |
+| g₀ on a unit cell, all pixels (`examples/03`) | 12 s (both eigenproblems, pair search) | 0.8 s | one central difference = 2 forward solves per variable |
 | g₀ on a 57k-DOF line-defect supercell | 116 s | 13.6 s, 2.5 GB | — |
 | Piezo η + ∇η + constraints, 12k DOF | about 5 s in total | (included) | — |
 | `BlochROM` band sweep (free-form cell, n = 96, 240 k) | 2.5 min including the reduction | — | full FEM 32 min (12–15×) |

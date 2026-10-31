@@ -29,6 +29,8 @@ Units: µm, k in rad/µm, eigenvalue (ω/c)² in (rad/µm)², frequencies return
 
 from __future__ import annotations
 
+import os
+import sys
 import warnings
 from dataclasses import dataclass
 
@@ -225,12 +227,13 @@ class PWESolver:
         tol is LOBPCG's absolute residual norm on unit vectors, for eigenvalues (ω/c)² of
         order 10-100. The eigenvalue error goes as the residual squared: on the slab benchmark
         tol = 0.1 and 1e-3 give the same frequency to 1e-7. The final residuals are kept in
-        self.residuals.
+        self.residuals, the iteration count in self.iterations. tol applies to the n_bands
+        requested; the `extra` bands above them only speed up convergence and may stop short of
+        tol. If maxiter is reached first, the current (unconverged) modes are returned.
         """
         prev = self._prev
         self._set_k(k)
         nb = n_bands + extra
-        n = 2 * np.prod(self.shape)
         if prev is not None and prev.shape[0] == nb:
             h0 = self._amplitudes(prev)
         else:
@@ -238,16 +241,11 @@ class PWESolver:
             h0 = rng.standard_normal((nb, 2) + self.shape) + 1j * rng.standard_normal((nb, 2) + self.shape)
             h0 *= (self.inv_absq**2)[None, None]  # start from smooth fields
         X0 = self._flat(self._project(h0))
-        A = spla.LinearOperator((n, n), matvec=lambda x: self._theta(x[:, None])[:, 0], matmat=self._theta, dtype=complex)
-        T = spla.LinearOperator(
-            (n, n), matvec=lambda x: self._precondition(x[:, None])[:, 0], matmat=self._precondition, dtype=complex
+        lam, X, res, itn = _lobpcg_jit(
+            jnp.asarray(X0), tol, maxiter, n_bands, self._eps_inv, self._eps, self._absq_j, self._inv_absq_j, self.shift, **self._state
         )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)  # "not reaching the requested tolerance"
-            lam, X, res = spla.lobpcg(
-                A, X0, M=T, largest=False, tol=tol, maxiter=maxiter, retResidualNormsHistory=True
-            )
-        self.residuals = np.asarray(res[-1])
+        lam, X = np.asarray(lam), np.asarray(X)
+        self.residuals, self.iterations = np.asarray(res), int(itn)
         order = np.argsort(lam)
         lam, X = lam[order], X[:, order]
         self._prev = self._vector(self._blocks(X))
@@ -410,9 +408,31 @@ class PWESolver:
                                         self._absq_j, self._inv_absq_j, self.shift, **self._state)
         return defl(proj(np.asarray(t)[:, None])[:, 0]), int(steps)
 
-    def bands(self, ks: np.ndarray, n_bands: int = 8, **kwargs) -> np.ndarray:
+    def bands(self, ks: np.ndarray, n_bands: int = 8, workers: int = 1, **kwargs) -> np.ndarray:
+        """
+        Frequencies (len(ks), n_bands) in THz, each k-point warm-started from the one before.
+        With workers > 1 the path is cut into `workers` contiguous pieces, each solved in its own
+        process pinned to its own share of the CPUs (Linux and Windows; elsewhere only XLA's
+        thread flags apply). That gives more throughput than one process, whose threads scale
+        poorly. The workers do not update this solver's state (last_vectors, residuals).
+        """
         self._prev = None
-        return np.array([self.solve(k, n_bands, **kwargs) for k in ks])
+        if workers <= 1:
+            return np.array([self.solve(k, n_bands, **kwargs) for k in ks])
+        import multiprocessing
+        from concurrent.futures import ProcessPoolExecutor
+
+        pieces = [p for p in np.array_split(np.asarray(ks, dtype=float), workers) if len(p)]
+        ctx = multiprocessing.get_context("spawn")
+        cpus = ctx.Queue()
+        n_cpu = os.cpu_count() or 1
+        per = max(1, n_cpu // len(pieces))
+        for i in range(len(pieces)):
+            cpus.put([(i * per + j) % n_cpu for j in range(per)])
+        with ProcessPoolExecutor(
+            len(pieces), mp_context=ctx, initializer=_set_worker_solver, initargs=(self.cell, self.parity, cpus)
+        ) as pool:
+            return np.concatenate(list(pool.map(_worker_bands, pieces, [n_bands] * len(pieces), [kwargs] * len(pieces))))
 
     def h_field(self, band: int) -> np.ndarray:
         """Periodic part of H for one band of the last solve, on the real-space grid (3, N1, N2, N3)."""
@@ -610,6 +630,35 @@ def light_line_thz(ks: np.ndarray) -> np.ndarray:
     return C_UM_PER_PS * np.linalg.norm(ks, axis=1) / (2 * np.pi)
 
 
+# --- worker processes for PWESolver.bands ----------------------------------------------------
+
+_WORKER_SOLVER: PWESolver | None = None
+
+
+def _set_worker_solver(cell: SlabCell, parity: str | None, cpus) -> None:
+    # XLA's thread flags confine the FFTs but not its matrix products, which spread over every core,
+    # so each worker is also pinned to the CPUs it takes from the queue. Both must happen before
+    # the worker's first JAX computation, which is when XLA reads its flags.
+    os.environ["XLA_FLAGS"] = (
+        os.environ.get("XLA_FLAGS", "") + " --xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1"
+    ).strip()
+    mine = cpus.get()
+    if hasattr(os, "sched_setaffinity"):
+        os.sched_setaffinity(0, mine)
+    elif sys.platform == "win32":
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32")
+        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+        kernel32.SetProcessAffinityMask(ctypes.c_void_p(kernel32.GetCurrentProcess()), ctypes.c_size_t(sum(1 << c for c in mine)))
+    global _WORKER_SOLVER
+    _WORKER_SOLVER = PWESolver(cell, parity)
+
+
+def _worker_bands(ks: np.ndarray, n_bands: int, kwargs: dict) -> np.ndarray:
+    return _WORKER_SOLVER.bands(ks, n_bands, **kwargs)
+
+
 # --- jitted operator kernels ---------------------------------------------------------------
 # Blocks X are (2·N1·N2·N3, nb) as LOBPCG passes them; h is the (nb, 2, N1, N2, N3) view.
 
@@ -665,6 +714,68 @@ def _theta_jit(X, eps_inv, absq, shift, u, v, mask, flip, parity):
 def _precondition_jit(X, eps, inv_absq, u, v, mask, flip, parity):
     h = _project_j(_to_blocks(X, inv_absq.shape), mask, flip, parity)
     return _to_flat(_project_j(_curl_chain_j(h, eps, inv_absq, u, v), mask, flip, parity))
+
+
+@partial(jax.jit, static_argnames=("parity",))
+def _lobpcg_jit(X0, tol, maxiter, n_conv, eps_inv, eps, absq, inv_absq, shift, u, v, mask, flip, parity):
+    """
+    Lowest eigenpairs of Θ by LOBPCG with the MPB preconditioner, the whole iteration compiled
+    (no host round trips between operator applications). Each step does a Rayleigh-Ritz on the
+    basis [X, W, P] (modes, preconditioned residuals, previous update), orthonormalised through
+    the eigendecomposition of its Gram matrix: near-dependent directions are dropped instead of
+    breaking a Cholesky factorisation. Converged columns (residual ≤ tol) add no search direction.
+    The iteration stops when the lowest n_conv columns have converged; the columns above them are
+    guard vectors, which speed up convergence but need not converge themselves.
+    Returns λ, X (orthonormal columns), the residual norms and the number of iterations.
+    """
+    nb = X0.shape[1]
+
+    def A(Y):
+        return _theta_jit(Y, eps_inv, absq, shift, u, v, mask, flip, parity)
+
+    def unit(Y, AY):
+        n = jnp.linalg.norm(Y, axis=0)
+        s = jnp.where(n > 0, 1 / jnp.where(n > 0, n, 1), 0)
+        return Y * s, AY * s
+
+    def rayleigh_ritz(G, H):
+        d, V = jnp.linalg.eigh((G + G.conj().T) / 2)
+        keep = d > 1e-10 * d[-1]
+        T = V * jnp.where(keep, 1 / jnp.sqrt(jnp.where(keep, d, 1)), 0)
+        B = T.conj().T @ ((H + H.conj().T) / 2) @ T + jnp.diag(jnp.where(keep, 0.0, 1e30))
+        mu, Y = jnp.linalg.eigh(B)
+        return mu[:nb], T @ Y[:, :nb]
+
+    X, _ = jnp.linalg.qr(X0)
+    AX = A(X)
+    lam, C = rayleigh_ritz(jnp.eye(nb, dtype=X.dtype), X.conj().T @ AX)
+    X, AX = X @ C, AX @ C
+    R = AX - X * lam
+    zero = jnp.zeros_like(X)
+    state = dict(itn=0, X=X, AX=AX, P=zero, AP=zero, lam=lam, R=R, res=jnp.linalg.norm(R, axis=0))
+
+    def cond(st):
+        return (st["itn"] < maxiter) & jnp.any((st["res"] > tol) & (jnp.arange(nb) < n_conv))
+
+    def body(st):
+        X, AX = st["X"], st["AX"]
+        W = _precondition_jit(st["R"], eps, inv_absq, u, v, mask, flip, parity) * (st["res"] > tol)
+        W = W - X @ (X.conj().T @ W)
+        W, AW = unit(W, A(W))
+        P, AP = unit(st["P"], st["AP"])
+        Q, AQ = jnp.concatenate([W, P], axis=1), jnp.concatenate([AW, AP], axis=1)
+        # Gram blocks of [X, Q]: X is orthonormal with XᴴAX = diag(λ) from the last step.
+        XQ, XAQ = X.conj().T @ Q, X.conj().T @ AQ
+        G = jnp.block([[jnp.eye(nb, dtype=X.dtype), XQ], [XQ.conj().T, Q.conj().T @ Q]])
+        H = jnp.block([[jnp.diag(st["lam"]).astype(X.dtype), XAQ], [XAQ.conj().T, Q.conj().T @ AQ]])
+        lam, C = rayleigh_ritz(G, H)
+        P, AP = Q @ C[nb:], AQ @ C[nb:]
+        X, AX = X @ C[:nb] + P, AX @ C[:nb] + AP
+        R = AX - X * lam
+        return dict(itn=st["itn"] + 1, X=X, AX=AX, P=P, AP=AP, lam=lam, R=R, res=jnp.linalg.norm(R, axis=0))
+
+    st = jax.lax.while_loop(cond, body, state)
+    return st["lam"], st["X"], st["res"], st["itn"]
 
 
 @partial(jax.jit, static_argnames=("parity",))
