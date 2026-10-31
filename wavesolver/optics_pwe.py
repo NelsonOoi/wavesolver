@@ -17,10 +17,10 @@ and 1/|q| in place of |q|.
 The operator, the preconditioner and the whole LOBPCG iteration are one jitted JAX program
 (_lobpcg_jit, a lax.while_loop): XLA fuses the elementwise passes around the FFTs and no data
 returns to Python between iterations. Two guard bands above the requested ones speed up
-convergence, but only the requested bands must reach tol. Each k-point starts from the previous
-one's modes. On a CPU the cost is bound by memory bandwidth (each Θ application streams the
-field block and the six ε⁻¹ components through several FFTs), so `bands(ks, workers=…)` gains
-up to about 4 processes and no more.
+convergence; like the requested bands, they must reach tol. Each k-point starts from the
+previous one's modes. On a CPU the cost is bound by memory bandwidth (each Θ application
+streams the field block and the six ε⁻¹ components through several FFTs), so
+`bands(ks, workers=…)` gains up to about 4 processes and no more.
 
 Interfaces that cut a voxel use the anisotropic average of Kottke et al. (PRE 77, 036611):
 ε⁻¹ = ⟨ε⁻¹⟩ n nᵀ + ⟨ε⟩⁻¹ (1 − n nᵀ), with n the local interface normal. Fill fractions come
@@ -235,9 +235,10 @@ class PWESolver:
         tol is LOBPCG's absolute residual norm on unit vectors, for eigenvalues (ω/c)² of
         order 10-100. The eigenvalue error goes as the residual squared: on the slab benchmark
         tol = 0.1 and 1e-3 give the same frequency to 1e-7. The final residuals are kept in
-        self.residuals, the iteration count in self.iterations. tol applies to the n_bands
-        requested; the `extra` bands above them only speed up convergence and may stop short of
-        tol. If maxiter is reached first, the current (unconverged) modes are returned.
+        self.residuals, the iteration count in self.iterations. All n_bands + extra bands must
+        reach tol: the `extra` (guard) bands speed up convergence and catch bands that cross into
+        the requested set. If maxiter is reached first, the current (unconverged) modes are
+        returned.
         """
         prev = self._prev
         self._set_k(k)
@@ -250,7 +251,7 @@ class PWESolver:
             h0 *= (self.inv_absq**2)[None, None]  # start from smooth fields
         X0 = self._flat(self._project(h0))
         lam, X, res, itn = _lobpcg_jit(
-            jnp.asarray(X0), tol, maxiter, n_bands, self._eps_inv, self._eps, self._absq_j, self._inv_absq_j, self.shift, **self._state
+            jnp.asarray(X0), tol, maxiter, self._eps_inv, self._eps, self._absq_j, self._inv_absq_j, self.shift, **self._state
         )
         lam, X = np.asarray(lam), np.asarray(X)
         self.residuals, self.iterations = np.asarray(res), int(itn)
@@ -725,15 +726,14 @@ def _precondition_jit(X, eps, inv_absq, u, v, mask, flip, parity):
 
 
 @partial(jax.jit, static_argnames=("parity",))
-def _lobpcg_jit(X0, tol, maxiter, n_conv, eps_inv, eps, absq, inv_absq, shift, u, v, mask, flip, parity):
+def _lobpcg_jit(X0, tol, maxiter, eps_inv, eps, absq, inv_absq, shift, u, v, mask, flip, parity):
     """
     Lowest eigenpairs of Θ by LOBPCG with the MPB preconditioner, the whole iteration compiled
     (no host round trips between operator applications). Each step does a Rayleigh-Ritz on the
     basis [X, W, P] (modes, preconditioned residuals, previous update), orthonormalised through
     the eigendecomposition of its Gram matrix: near-dependent directions are dropped instead of
     breaking a Cholesky factorisation. Converged columns (residual ≤ tol) add no search direction.
-    The iteration stops when the lowest n_conv columns have converged; the columns above them are
-    guard vectors, which speed up convergence but need not converge themselves.
+    The iteration stops when every column has converged.
     Returns λ, X (orthonormal columns), the residual norms and the number of iterations.
     """
     nb = X0.shape[1]
@@ -763,7 +763,7 @@ def _lobpcg_jit(X0, tol, maxiter, n_conv, eps_inv, eps, absq, inv_absq, shift, u
     state = dict(itn=0, X=X, AX=AX, P=zero, AP=zero, lam=lam, R=R, res=jnp.linalg.norm(R, axis=0))
 
     def cond(st):
-        return (st["itn"] < maxiter) & jnp.any((st["res"] > tol) & (jnp.arange(nb) < n_conv))
+        return (st["itn"] < maxiter) & jnp.any(st["res"] > tol)
 
     def body(st):
         X, AX = st["X"], st["AX"]

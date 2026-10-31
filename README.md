@@ -7,7 +7,7 @@ geometry enters every solver as a smooth solid-fraction map on a fixed grid, so 
 and every result is differentiable.
 
 On a unit cell, the mechanical solver matches COMSOL to about 0.25 % and needs 40–50× fewer
-core-seconds per k-point. The optics solver reproduces MPB to 0.1 % and is about 4× faster in
+core-seconds per k-point. The optics solver reproduces MPB to 0.1 % and is about 2× faster in
 wall time than COMSOL. Gradients cost less than one extra solve. Details are under
 [Performance against COMSOL](#performance-against-comsol) and [Accuracy](#accuracy).
 
@@ -122,7 +122,7 @@ it.
 
 ### Recipes
 
-The four scripts in `examples/` are short, run in 3–35 s, and finish with a gradient check against
+The four scripts in `examples/` are short, run in 3 s to about 1.5 min, and finish with a gradient check against
 finite differences. Run them first to confirm that the install works.
 
 | Example | Shows |
@@ -196,9 +196,9 @@ dq/dθ. Example 03 does this end to end for g₀.
 ## Performance against COMSOL
 
 These are unit-cell timings for one free-form phoxonic cell (a = 621.5 nm, 220 nm cubic Si slab),
-per k-point and per parity, on an AMD Ryzen 9 7950X. The FEM and COMSOL rows were measured while two
-COMSOL jobs shared the CPU, so those numbers are somewhat high. The PWE rows were measured on an idle
-machine: 3 bands warm-started along the path at the optimisation grid, 6 at the verification grid.
+per k-point and per parity, on an AMD Ryzen 9 7950X. Every row was measured while COMSOL jobs
+shared the CPU, so the numbers are somewhat high. The PWE rows solve 3 bands warm-started along the
+path at the optimisation grid, and 6 at the verification grid.
 The COMSOL model uses the same cell, from the smooth exported outline, with a Floquet unit cell and
 the mid-plane symmetry.
 
@@ -207,8 +207,8 @@ the mid-plane symmetry.
 | `BlochSolver`, `slab_p`, n = 32 (optimisation mesh) | 4,928 / 4,312 | **0.15 / 0.11 s** | 1 |
 | `BlochSolver`, `slab_p`, n = 96 (verification mesh) | 37,576 / 32,879 | **2.3 / 1.6 s** | 1 |
 | COMSOL solid mechanics, quadratic tetrahedra, hmax = t/7.5 | 65,565 | 10–15 s | 8 |
-| `PWESolver`, 32 × 32 × 64, 1.5 µm supercell | 131,072 | **0.63 s** | 1 process (XLA threads) |
-| `PWESolver`, 32 × 32 × 128, 2.0 µm supercell | 262,144 | **2.5 s** | 1 process (XLA threads) |
+| `PWESolver`, 32 × 32 × 64, 1.5 µm supercell | 131,072 | **1.6 s** | 1 process (XLA threads) |
+| `PWESolver`, 32 × 32 × 128, 2.0 µm supercell | 262,144 | **4.3 s** | 1 process (XLA threads) |
 | COMSOL electromagnetic waves, hmax = t/6 (Si), t_air/10 (air) | 89,100 | 10 s | 8 |
 
 **Mechanics.**
@@ -217,28 +217,29 @@ the mid-plane symmetry.
   faster in wall time on 1 core than COMSOL on 8 cores. That is **40–50× fewer core-seconds**.
 - At the optimisation mesh it is about **100× faster in wall time**.
 
-**Optics.** At the verification grid the PWE is about **4× faster in wall time** than COMSOL on
-8 cores (2.5 s against 10 s per k-point), in one process. It is used mainly because:
+**Optics.** At the verification grid the PWE is about **2× faster in wall time** than COMSOL on
+8 cores (4.3 s against 10 s per k-point), in one process. It is used mainly because:
 
 - its gradients are nearly free;
 - its frequencies depend smoothly on the fill;
 - it reproduces MPB to 0.1 %.
 
-Its eigensolver (LOBPCG with MPB's preconditioner) runs entirely in compiled JAX. It stops when
-the requested bands converge, not the two extra guard bands. Against the earlier version, which
-drove SciPy's LOBPCG from Python, it gives the same frequencies (to 1e-9 or better) and is:
+Its eigensolver (LOBPCG with MPB's preconditioner) runs entirely in compiled JAX. Every band it
+computes converges, including the two guard bands above the requested ones, as in SciPy's LOBPCG.
+Against the earlier version, which drove SciPy's LOBPCG from Python, it gives the same frequencies
+(to 2e-10 or better) and is, run back to back on the same loaded machine:
 
 | Case | Previous (SciPy LOBPCG) | Now | Speedup |
 |---|---|---|---|
-| Free-form cell, 32 × 32 × 64, 3 bands, warm path | 2.68 s per k-point | 0.63 s | 4.2× |
-| Free-form cell, 32 × 32 × 128, 6 bands, warm path | 11.8 s per k-point | 2.5 s | 4.7× |
-| Tripod cell, 24 × 24 × 64, `tol=1e-8` (gradient setting) | 6.8 s | 1.5 s | 4.4× |
-| Tripod cell, 32 × 32 × 128, 8 bands, cold start | 32 s | 12 s | 2.7× |
-| Tripod cell, 43-point Γ–M–K–Γ path, 6 bands, `bands(ks, workers=4)` | 128 s | 23 s | 5.5× |
+| Free-form cell, 32 × 32 × 64, 3 bands, warm path | 3.6 s per k-point | 1.6 s | 2.2× |
+| Free-form cell, 32 × 32 × 128, 6 bands, warm path | 11.6 s per k-point | 4.3 s | 2.7× |
+| Tripod cell, 24 × 24 × 64, `tol=1e-8` (gradient setting) | 9.6 s | 4.0 s | 2.4× |
+| Tripod cell, 32 × 32 × 128, 8 bands, cold start | 37 s | 12 s | 3.0× |
+| Tripod cell, 43-point Γ–M–K–Γ path, 6 bands, `bands(ks, workers=4)` | 169 s (serial) | 39 s | 4.3× |
 
 **The PWE is limited by memory bandwidth on a CPU, not by cores.** One process already uses
 several XLA threads. `bands(ks, workers=4)` pins worker processes to separate CPUs and gains a
-further 1.6× on a 16-core desktop. With 8 or more workers, each one slows down 3–4× and the total
+further 1.6–1.8× on a 16-core desktop. With 8 or more workers, each one slows down 3–4× and the total
 gets worse, because they share the same memory bandwidth.
 
 Other optics timings. Hardware differs between rows; the MPB comparison was a single run of the
@@ -248,7 +249,7 @@ previous eigensolver on a heavily loaded Apple M1, and the rest are on the 7950X
 |---|---|---|
 | PWE (previous eigensolver), tripod cell, resolution matched to MPB | 33 s per k-point | MPB 1.35: 58 s |
 | PWE (previous eigensolver), line-defect supercell, band edge | 112–265 s | — |
-| GME, tripod cell, g = 5, 128² raster (`gme_bands.py`) | 0.07–0.11 s per k-point | PWE: 0.6–2.5 s per k-point |
+| GME, tripod cell, g = 5, 128² raster (`gme_bands.py`) | 0.07–0.11 s per k-point | PWE: 1.6–4.3 s per k-point |
 | GME, line-defect supercell, band edge | 1.7 s + 3.2 s for the gradient | PWE (previous eigensolver): 112–265 s |
 | GME, finite cavity, 13 columns × 2 rows | 40 s | 3D FDTD (meep): 21 min |
 
@@ -268,7 +269,7 @@ Other measured costs:
 
 | Quantity | Forward | Gradient | Reference |
 |---|---|---|---|
-| g₀ on a unit cell, all pixels (`examples/03`) | 12 s (both eigenproblems, pair search) | 0.8 s | one central difference = 2 forward solves per variable |
+| g₀ on a unit cell, all pixels (`examples/03`) | 23 s (both eigenproblems, pair search) | 1.2 s | one central difference = 2 forward solves per variable |
 | g₀ on a 57k-DOF line-defect supercell | 116 s | 13.6 s, 2.5 GB | — |
 | Piezo η + ∇η + constraints, 12k DOF | about 5 s in total | (included) | — |
 | `BlochROM` band sweep (free-form cell, n = 96, 240 k) | 2.5 min including the reduction | — | full FEM 32 min (12–15×) |
@@ -300,14 +301,15 @@ Other measured costs:
 3. **Mirror symmetry.** A projection onto one z-parity (σ_z-even, TE-like) removes the other
    family, so the lowest bands are the ones you want.
 4. **MPB's preconditioner.** The same curl chain with ε in place of ε⁻¹ and 1/|q| in place of
-   |q| approximates Θ⁻¹ and keeps the iteration count low: 11–23 per k-point along a path at the
-   default `tol=1e-2`, about 40 from a cold start at the gradient setting `tol=1e-8`.
+   |q| approximates Θ⁻¹ and keeps the iteration count low: 14–35 per k-point along a path at the
+   default `tol=1e-2`, about 45 from a cold start at the gradient setting `tol=1e-8`.
 5. **One compiled eigensolver.** The operator, the preconditioner and the whole LOBPCG loop
    (Rayleigh–Ritz on [X, W, P], orthonormalised through the Gram matrix's eigendecomposition)
    are one jitted JAX program. XLA fuses the pointwise passes around the FFTs, and no data
    returns to Python between iterations.
-6. **Only the requested bands must converge.** Two guard bands above them speed up convergence
-   but are not waited for; they were the slowest to converge and most of the earlier cost.
+6. **Guard bands.** The block carries two bands more than requested. They speed up convergence
+   and catch bands that cross into the requested set from above, and they converge to `tol` like
+   the rest, as every mode from the mechanics solver does.
 7. **Warm starts along a path.** Each k-point starts from the previous one's modes.
 8. **Gradients from the fields.** ∂λ/∂ε⁻¹ is a pointwise product of the mode's curl fields, so
    the gradient with respect to every pixel costs one pass over the grid, not another solve.
