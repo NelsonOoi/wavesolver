@@ -6,9 +6,12 @@ these quantities with respect to every pixel of the pattern. It is built for inv
 geometry enters every solver as a smooth solid-fraction map on a fixed grid, so nothing is remeshed
 and every result is differentiable.
 
-On a unit cell, the mechanical solver matches COMSOL to about 0.25 % and needs 40–50× fewer
-core-seconds per k-point. The optics solver reproduces MPB to 0.1 % and is about 2× faster in
-wall time than COMSOL. Gradients cost less than one extra solve. Details are under
+On a unit cell, the mechanical solver converges to a fine COMSOL reference: 0.26 % at the
+verification mesh, 0.05 % at n = 192. The optics solver reproduces MPB to 0.1 %. The forward
+solves are not faster than a well-set-up COMSOL model at equal accuracy, where COMSOL is 1–12×
+faster for the mechanics. What this code adds is the gradient. One adjoint solve gives the
+derivative with respect to every pixel, for less than the cost of one extra solve. With finite
+differences, every variable costs two more solves. Details are under
 [Performance against COMSOL](#performance-against-comsol) and [Accuracy](#accuracy).
 
 The code is plain Python (NumPy, SciPy, JAX), runs on a CPU, and is MIT-licensed.
@@ -172,8 +175,10 @@ dq/dθ. Example 03 does this end to end for g₀.
 - **Windows.** The MKL BLAS shipped in the win-64 env crashes silently (exit code 127) unless
   `MKL_THREADING_LAYER=SEQUENTIAL` is set. Set `PYTHONUTF8=1` too, because logs contain Greek
   letters. `pixi run` sets both.
-- **Mesh bias.** At `n = 32` (about 20 nm elements) the mechanical gap edges sit 1.4–6 % high.
-  Optimise at `n = 32`, then re-verify the final design at `n = 96`.
+- **Mesh bias.** Mechanical frequencies always come out high. At `n = 32` (about 20 nm
+  elements) they are 2 % high on average (gap edges 1.4–6 %). At `n = 96` they are 0.26 % high,
+  and at `n = 128` 0.1 %. Optimise at `n = 32`, then re-verify the final design at `n = 96` or
+  finer.
 - **Shape gradients.** Pass `min_fraction=1e-9` to `BlochSolver`. With the default `1e-3`, nearly
   empty edge elements are dropped and about 17 % of the edge gradient is lost.
 - **Degenerate bands.** Two modes at the same frequency (common at Γ and K) are not individually
@@ -195,39 +200,159 @@ dq/dθ. Example 03 does this end to end for g₀.
 
 ## Performance against COMSOL
 
-These are unit-cell timings for one free-form phoxonic cell (a = 621.5 nm, 220 nm cubic Si slab),
-per k-point and per parity, on an AMD Ryzen 9 7950X. Every row was measured while COMSOL jobs
-shared the CPU, so the numbers are somewhat high. The PWE rows solve 3 bands warm-started along the
-path at the optimisation grid, and 6 at the verification grid.
-The COMSOL model uses the same cell, from the smooth exported outline, with a Floquet unit cell and
-the mid-plane symmetry.
+The two codes are compared at equal accuracy. Both solve one free-form phoxonic cell (a = 621.5 nm,
+220 nm cubic Si slab) on the same k-points of the Γ–M–K–Γ path, in both parities. COMSOL 6.2 meshes
+the cell from its smooth exported outline, with a Floquet unit cell and the mid-plane symmetry, and
+runs in batch mode. Every error is measured against a converged COMSOL reference. For the mechanics
+this is quartic and cubic swept-prism meshes (113k and 72k DOFs), which agree with each other to
+0.005 % mean. For the optics it is cubic elements (257k DOFs).
 
-| Solver | Unknowns | Time per k-point | Cores |
+Times are per k-point and parity, and cover only the eigensolve. COMSOL's process start (20–30 s)
+and its meshing are not included, although an optimisation loop that remeshes every design pays
+them. All runs were on an AMD Ryzen 9 7950X while other optimisation jobs shared the CPU, so the
+absolute times are high: repeat runs of one setting varied by up to 40 %. The two codes ran back
+to back, so the ratios between them are what the tables show. The comparison is internal; the
+COMSOL driver is not distributed.
+
+### Mechanics
+
+The k-points are 8, and the error is the mean over all modes above 0.3 GHz in both parities. Each
+COMSOL setting below is the fastest one found for its accuracy (see
+[What makes COMSOL fast](#what-makes-comsol-fast)).
+This solver runs one process per k-point and does not thread, so its 8-core column is empty. The
+throughput table further down gives its 8-core figures.
+
+| Code and setting | DOFs | Mean / max error | s per k, 1 core | s per k, 8 cores |
+|---|---|---|---|---|
+| `BlochSolver` `slab_p`, n = 24 | 2,888 / 2,527 | 3.7 % / 8.8 % | 0.16 | — |
+| `BlochSolver` `slab_p`, n = 32 (optimisation mesh) | 4,928 / 4,312 | 2.0 % / 5.3 % | 0.62 | — |
+| `BlochSolver` `slab_p`, n = 48 | 10,096 / 8,834 | 0.95 % / 2.4 % | 1.10 | — |
+| COMSOL, quadratic prisms, 1 layer, coarse outline | 3,351 | 0.79 % / 1.4 % | 1.16 | 0.31 |
+| `BlochSolver` `slab_p`, n = 64 | 17,432 / 15,253 | 0.58 % / 1.5 % | 2.36 | — |
+| COMSOL, quadratic prisms, 2 layers, coarse outline | 5,235 | 0.58 % / 1.3 % | 1.11 | 0.39 |
+| `BlochSolver` `slab_p`, n = 96 (verification mesh) | 37,576 / 32,879 | 0.26 % / 0.63 % | 3.82 | — |
+| COMSOL, quadratic prisms, 1 layer | 10,866 | 0.26 % / 0.53 % | 1.20 | 0.86 |
+| COMSOL, cubic prisms, 1 layer, coarse outline | 12,864 | 0.11 % / 0.24 % | 3.48 | 1.19 |
+| `BlochSolver` `slab_p`, n = 128 | 65,400 / 57,225 | 0.10 % / 0.23 % | 13.8 | — |
+| COMSOL, quadratic prisms, 2 layers | 16,944 | 0.07 % / 0.12 % | 2.53 | 0.90 |
+| `BlochSolver` `slab_p`, n = 192 | 143,728 / 125,762 | 0.05 % / 0.10 % | 31.5 | — |
+| COMSOL, cubic prisms, 1 layer | 28,632 | 0.02 % / 0.04 % | 6.59 | 3.24 |
+| COMSOL, earlier setting: quadratic tetrahedra, hmax = t/7.5, 10 modes, MUMPS | 65,565 | 0.05 % / 0.12 % | — | 20–26 |
+
+At matched accuracy on one core:
+
+| Accuracy | Result |
+|---|---|
+| About 0.9 % | Even |
+| 0.6 % | COMSOL 2× faster |
+| 0.26 % | COMSOL 3× faster |
+| 0.1 % | COMSOL 4× faster |
+| 0.05 % | COMSOL about 12× faster |
+
+The two codes converge from the same side. This solver comes out high on every mode, and its error
+falls about as 1/n². COMSOL's body-fitted quadratic elements reach the same error with 3–8× fewer
+unknowns. This solver is cheaper only at accuracies coarser than about 1 %, such as the n = 32
+optimisation mesh: COMSOL cannot mesh the cell that coarsely, and its coarsest mesh is accurate to
+0.8 %.
+
+**Throughput on 8 cores.** The k-points here are 48, with both parities, and the errors are those
+of the matching settings above. COMSOL runs as 4 processes of 2 threads, and its wall time includes
+process start and meshing. This solver runs `bands(ks, workers=8)`.
+
+| Code and setting | Error | Wall time |
+|---|---|---|
+| COMSOL, quadratic prisms, 1 layer | 0.26 % | 57 s |
+| `BlochSolver` `slab_p`, n = 96 | 0.26 % | 102 s |
+| COMSOL, quadratic prisms, 2 layers | 0.07 % | 89 s |
+| `BlochSolver` `slab_p`, n = 128 | 0.10 % | 232 s |
+| `BlochSolver` `slab_p`, n = 192 | 0.05 % | 598 s |
+
+COMSOL's throughput is 1.8× higher at 0.26 % and about 7× higher at 0.05 %.
+
+#### What makes COMSOL fast
+
+Measured on this cell, one change at a time:
+
+- **Swept prisms instead of tetrahedra.** 1–2 element layers through the thickness reach a given
+  error with about 2× fewer DOFs.
+- **PARDISO instead of the default MUMPS:** 2× (16.9 → 8.5 s per k-point on the tetrahedral mesh).
+- **An auxiliary sweep over k inside one study, instead of one study run per k-point:** 2.5× at
+  17k DOFs (2.3 → 0.9 s).
+- **7 eigenpairs instead of 10:** about 1.3×.
+- **A coarser hole outline.** COMSOL's mesher keeps at least one element edge per segment of the
+  outline's spline. With the 5 nm point spacing of the exported outline (417 points), the in-plane
+  mesh cannot get coarser than about 1,000 triangles, whatever hmax says. Points every 20–40 nm
+  allow the coarse meshes in the table.
+
+The earlier COMSOL setting (quadratic tetrahedra at t/7.5, MUMPS, 10 eigenpairs, one study run per
+k-point) is about 20× slower than COMSOL's fastest setting of similar error, which is 0.9 s per
+k-point on 8 cores at 0.07 %. Older versions of this README compared against it.
+
+### Optics
+
+The k-points are 8. The modes compared are the 10 TE-like modes of the reference that lie below the
+light line and whose field falls to e⁻³ before the edge of COMSOL's air box. Each one is matched to
+the nearest mode of the run.
+
+| Code and setting | Unknowns | Mean / max error | s per k | Cores |
+|---|---|---|---|---|
+| COMSOL, cubic tetrahedra (reference) | 257,169 | — | 69 | 8 |
+| COMSOL, quadratic tetrahedra, hmax = t/6 (Si), t_air/10 (air), 14 modes (earlier setting) | 89,100 | 0.03 % / 0.07 % | 14.5 | 8 |
+| COMSOL, same mesh, 8 modes | 89,100 | 0.03 % / 0.07 % | 7.0 | 8 |
+| COMSOL, mesh 0.75× coarser, 8 modes | 62,302 | 0.03 % / 0.07 % | **4.6** | 8 |
+| COMSOL, swept prisms in the slab, 2 layers, tetrahedra above, 8 modes | 70,670 | 0.015 % / 0.03 % | 8.5 | 8 |
+| `PWESolver`, 24 × 24 × 48, 1.5 µm supercell | 55,296 | 0.43 % / 0.78 % | 4.5 | 1 process (XLA threads) |
+| `PWESolver`, 32 × 32 × 64, 1.5 µm supercell | 131,072 | 0.37 % / 0.89 % | 11.8 | 1 process |
+| `PWESolver`, 32 × 32 × 128, 2.0 µm supercell | 262,144 | 0.25 % / 0.44 % | 16.1 | 1 process |
+| `PWESolver`, 48 × 48 × 128, 2.0 µm supercell | 589,824 | 0.18 % / 0.32 % | 44.9 | 1 process |
+
+- **COMSOL's speedups for optics.** Fewer eigenpairs and a coarser mesh help. PARDISO and the
+  auxiliary k sweep do not change the optics time.
+- **The PWE starts almost cold here.** These 8 k-points are far apart, so the PWE gains little from
+  its warm start. Along a dense path, 32 × 32 × 64 and 32 × 32 × 128 take 1.6 s and 4.3 s per
+  k-point (see the eigensolver table below). That is close to COMSOL's 4.6 s, but at about 10× its
+  error.
+- **Part of the PWE's error comes from the air boundary.** The PWE cell is periodic in z, at 1.5 or
+  2 µm, where COMSOL has PEC at 1.5 µm. Some of the PWE's 0.2–0.4 % is this boundary, not the grid.
+
+### Summary
+
+- **Forward solves.** At equal accuracy a well-set-up COMSOL model is as fast or faster: by 1–12×
+  for the mechanics, and by several times for the optics.
+- **Where this code wins.** It is cheaper only at the coarse optimisation mesh (2 %), which COMSOL
+  cannot reach.
+- **What it is for.** Its use is the gradient and the fixed grid.
+
+### Gradients
+
+One adjoint solve gives the derivative of a band with respect to every pixel, and costs less than
+one extra forward solve. Take one robust free-form optimisation step: 3 eroded/nominal/dilated
+designs × 2 parities × 76 k-points = 456 mechanical eigenproblems, plus their gradients over 342
+pixel variables.
+
+- **Here, at n = 32:** a few core-minutes, at 0.15–0.6 s per solve depending on machine load.
+- **COMSOL at its coarsest mesh** (0.8 %, 1.1 s per solve on 1 core):
+  - about 9 core-minutes for the frequencies alone;
+  - about **4 core-days** with central finite-difference gradients, which take 684 extra solves per
+    eigenproblem. Each of those solves is on a remeshed geometry, so mesh noise enters every
+    difference.
+
+Other measured costs:
+
+| Quantity | Forward | Gradient | Reference |
 |---|---|---|---|
-| `BlochSolver`, `slab_p`, n = 32 (optimisation mesh) | 4,928 / 4,312 | **0.15 / 0.11 s** | 1 |
-| `BlochSolver`, `slab_p`, n = 96 (verification mesh) | 37,576 / 32,879 | **2.3 / 1.6 s** | 1 |
-| COMSOL solid mechanics, quadratic tetrahedra, hmax = t/7.5 | 65,565 | 10–15 s | 8 |
-| `PWESolver`, 32 × 32 × 64, 1.5 µm supercell | 131,072 | **1.6 s** | 1 process (XLA threads) |
-| `PWESolver`, 32 × 32 × 128, 2.0 µm supercell | 262,144 | **4.3 s** | 1 process (XLA threads) |
-| COMSOL electromagnetic waves, hmax = t/6 (Si), t_air/10 (air) | 89,100 | 10 s | 8 |
+| g₀ on a unit cell, all pixels (`examples/03`) | 23 s (both eigenproblems, pair search) | 1.2 s | one central difference = 2 forward solves per variable |
+| g₀ on a 57k-DOF line-defect supercell | 116 s | 13.6 s, 2.5 GB | — |
+| Piezo η + ∇η + constraints, 12k DOF | about 5 s in total | (included) | — |
+| `BlochROM` band sweep (free-form cell, n = 96, 240 k) | 2.5 min including the reduction | — | full FEM 32 min (12–15×) |
+| `ChainROM` single-cell update in a finite cavity | about 0.1 s | — | 3–6× faster than the full FEM, ⅓ of the memory |
 
-**Mechanics.**
+### Optics solver timings
 
-- At verification resolution (both codes within 0.25 % of each other), the FEM here is 5–7×
-  faster in wall time on 1 core than COMSOL on 8 cores. That is **40–50× fewer core-seconds**.
-- At the optimisation mesh it is about **100× faster in wall time**.
-
-**Optics.** At the verification grid the PWE is about **2× faster in wall time** than COMSOL on
-8 cores (4.3 s against 10 s per k-point), in one process. It is used mainly because:
-
-- its gradients are nearly free;
-- its frequencies depend smoothly on the fill;
-- it reproduces MPB to 0.1 %.
-
-Its eigensolver (LOBPCG with MPB's preconditioner) runs entirely in compiled JAX. Every band it
+The PWE eigensolver (LOBPCG with MPB's preconditioner) runs entirely in compiled JAX. Every band it
 computes converges, including the two guard bands above the requested ones, as in SciPy's LOBPCG.
-Against the earlier version, which drove SciPy's LOBPCG from Python, it gives the same frequencies
-(to 2e-10 or better) and is, run back to back on the same loaded machine:
+It gives the same frequencies as the earlier version, which drove SciPy's LOBPCG from Python, to
+2e-10 or better. The two versions ran back to back on the same loaded machine:
 
 | Case | Previous (SciPy LOBPCG) | Now | Speedup |
 |---|---|---|---|
@@ -242,8 +367,8 @@ several XLA threads. `bands(ks, workers=4)` pins worker processes to separate CP
 further 1.6–1.8× on a 16-core desktop. With 8 or more workers, each one slows down 3–4× and the total
 gets worse, because they share the same memory bandwidth.
 
-Other optics timings. Hardware differs between rows; the MPB comparison was a single run of the
-previous eigensolver on a heavily loaded Apple M1, and the rest are on the 7950X.
+Other optics timings. Hardware differs between rows. The MPB comparison was a single run of the
+previous eigensolver on a heavily loaded Apple M1; the other rows are on the 7950X.
 
 | Solver and case | Time | Reference |
 |---|---|---|
@@ -256,41 +381,24 @@ previous eigensolver on a heavily loaded Apple M1, and the rest are on the 7950X
 GME is about an order of magnitude faster than PWE but accurate only to about ±1 % (see
 [Limits](#limits)). Use it to screen designs, then verify with PWE.
 
-**Gradients are where the gap becomes decisive.** One adjoint solve gives the derivative of a band
-with respect to every pixel. Take one robust free-form optimisation step:
-
-- 3 eroded/nominal/dilated designs × 2 parities × 76 k-points = 456 mechanical eigenproblems,
-  plus their gradients over 342 pixel variables;
-- here: about **1 core-minute**;
-- with the COMSOL model above: about 1.5 h for the frequencies alone, and about **3 weeks** with
-  finite-difference gradients.
-
-Other measured costs:
-
-| Quantity | Forward | Gradient | Reference |
-|---|---|---|---|
-| g₀ on a unit cell, all pixels (`examples/03`) | 23 s (both eigenproblems, pair search) | 1.2 s | one central difference = 2 forward solves per variable |
-| g₀ on a 57k-DOF line-defect supercell | 116 s | 13.6 s, 2.5 GB | — |
-| Piezo η + ∇η + constraints, 12k DOF | about 5 s in total | (included) | — |
-| `BlochROM` band sweep (free-form cell, n = 96, 240 k) | 2.5 min including the reduction | — | full FEM 32 min (12–15×) |
-| `ChainROM` single-cell update in a finite cavity | about 0.1 s | — | 3–6× faster than the full FEM, ⅓ of the memory |
-
-**Why the FEM is faster:**
+### How the mechanics FEM works
 
 1. **2D mesh, polynomial thickness.** Each displacement component is a Legendre series of one
    z-parity through the 220 nm slab: 7–8 unknowns per node, and a 2D sparsity pattern. A sparse
-   factorisation of a 2D pattern costs about N^1.5 against N² for 3D, with less fill.
+   factorisation of a 2D pattern costs about N^1.5, with less fill than 3D.
 2. **No per-k assembly or constraints.** The Bloch phase is carried by how the element nodes wrap
-   around the cell. A new k is a weighted sum of nine stored arrays, where COMSOL re-assembles and
-   eliminates Floquet constraints in every study run.
+   around the cell. A new k is a weighted sum of nine stored arrays.
 3. **Cholesky instead of LU.** A shift slightly below zero keeps K − σM positive definite, so
    supernodal CHOLMOD can be used.
-4. **Parallel across k-points.** k-points are independent, so 16 cores solve 16 k-points with
-   almost perfect scaling. A threaded direct solve of 65k unknowns gains far less from 8 threads.
+4. **Parallel across k-points.** k-points are independent, and `bands(ks, workers=…)` splits them
+   across processes with almost perfect scaling.
 5. **No remeshing.** The fixed grid makes each band a smooth function of the design, with no mesh
    noise in the objective.
+6. **Where the accuracy goes.** Edges are partly filled elements, not a fitted boundary. They limit
+   convergence to about 1/n², and they are why a body-fitted mesh needs 3–8× fewer unknowns for the
+   same error. A better treatment of cut elements is the open route to cheaper verification solves.
 
-**How the PWE optics solver works, and why it is fast:**
+### How the PWE optics solver works
 
 1. **Matrix-free operator.** H is expanded in plane waves with two transverse amplitudes each,
    so ∇·H = 0 holds exactly and there are no spurious modes. Applying Θ = ∇ × ε⁻¹ ∇ × costs
@@ -345,7 +453,10 @@ internal:
 | Full phononic gap, COMSOL | 3.539–4.501 GHz | 3.232–4.177 GHz |
 | Full phononic gap, this solver | 3.546–4.511 GHz | 3.243–4.188 GHz |
 
-COMSOL is about 0.2 % lower throughout, so the gap edges agree to within 0.35 %.
+This solver sits about 0.2 % above COMSOL throughout, and the gap edges agree to within 0.35 %.
+That offset is this solver's own error at n = 96. On a similar free-form cell, a converged COMSOL
+reference puts this solver at +0.26 % and this COMSOL mesh within 0.05 % (see
+[Performance against COMSOL](#mechanics)).
 
 **Optics against COMSOL, the same two cells.** TE-like bands for modes confined to the slab, whose
 field falls to e⁻³ before the edge of the air box, internal:
@@ -358,7 +469,9 @@ field falls to e⁻³ before the edge of the air box, internal:
 
 The gap edges agree to within 0.5 %. Modes that reach the box edge differ by up to 15 %, because
 they depend on the box (COMSOL uses PEC at 1.5 µm, PWE a 2 µm periodic supercell). No gap edge is
-such a mode.
+such a mode. COMSOL's mesh here is within 0.03 % of a cubic-element reference. So most of the
+difference comes from the PWE grid and the different air boundary (see
+[Optics](#optics)).
 
 **Other references:**
 
