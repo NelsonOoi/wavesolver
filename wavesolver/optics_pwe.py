@@ -140,8 +140,13 @@ def slab_cell(
 class PWESolver:
     """Bloch modes of a SlabCell. parity: "even" (TE-like), "odd" (TM-like) or None."""
 
-    def __init__(self, cell: SlabCell, parity: str | None = "even"):
+    def __init__(self, cell: SlabCell, parity: str | None = "even", no_shell_thz: float | None = None):
+        """
+        no_shell_thz: leave out of the basis the plane waves in the light cone at this frequency within half the box's
+        k_z spacing of the shell, ||q + G| − k0| < π/H, so a cavity mode near it has no box modes to mix with.
+        """
         self.cell = cell
+        self.no_shell_thz = no_shell_thz
         self.shape = cell.eps.shape
         self.parity = parity
         A = cell.vectors
@@ -167,6 +172,9 @@ class PWESolver:
         q = self.G + np.array([k[0], k[1], 0.0])[:, None, None, None]
         absq = np.sqrt((q**2).sum(axis=0))
         self.mask = (absq > 1e-9) & self.keep_z
+        if self.no_shell_thz is not None:
+            k0 = 2 * np.pi * self.no_shell_thz / C_UM_PER_PS
+            self.mask &= ~(((q[0] ** 2 + q[1] ** 2) < k0**2) & (np.abs(absq - k0) < np.pi / self.cell.height))
         qhat = np.divide(q, absq, out=np.zeros_like(q), where=self.mask)
         u = np.stack([-q[1], q[0], np.zeros_like(q[0])])  # ẑ × q
         un = np.sqrt((u**2).sum(axis=0))
@@ -545,7 +553,7 @@ class PWESolver:
         return dlam
 
     def adjoint_solve(
-        self, band: int, rhs: np.ndarray, tol: float = 1e-10, maxiter: int = 3000, start: bool = True, jax: bool = False
+        self, band: int, rhs: np.ndarray, tol: float = 1e-10, maxiter: int = 3000, start: bool = True, jax: bool = False, x0: np.ndarray | None = None
     ) -> tuple[np.ndarray, dict]:
         """
         Linear response of one band of the last solve: w with (Θ − λ) w = r, w ⊥ x (x the
@@ -565,7 +573,9 @@ class PWESolver:
         correction equation), from zero; ~1.6× faster per
         step on the CPU. For a cavity mode in a large supercell (solve_near, one stored band)
         the spectrum near λ is dense, but a functional of the localised mode has a localised
-        right-hand side, so a loose tol (~1e-3) suffices.
+        right-hand side, so a loose tol (~1e-3) suffices. x0 (with jax): start from x0 at its best complex
+        scale, which also takes up the arbitrary phase of a new eigenvector; the w of a previous design
+        leaves a residual ~0.1 and needs a fraction of the steps.
         """
         X = self.last_vectors
         x = X[:, band]
@@ -603,11 +613,18 @@ class PWESolver:
             return np.zeros_like(b), dict(iterations=0, residual=0.0, info=0, min_gap=gaps.min())
         b = b / scale
         if jax:
-            w, steps = _minres_deflated_jit(jnp.asarray(b), jnp.asarray(x[:, None]), lam, maxiter, tol, self._eps_inv, self._eps, self._absq_j, self._inv_absq_j,
+            w0, b0, res0 = np.zeros_like(b), b, 1.0
+            if x0 is not None:
+                w0 = defl(proj(np.asarray(x0, dtype=complex)))
+                Aw = defl(self._theta(w0[:, None])[:, 0] - lam * w0)
+                alpha = np.vdot(Aw, b) / np.vdot(Aw, Aw)
+                w0, b0 = alpha * w0, b - alpha * Aw
+                res0 = np.linalg.norm(b0)
+            w, steps = _minres_deflated_jit(jnp.asarray(b0), jnp.asarray(x[:, None]), lam, maxiter, min(tol / res0, 1.0), self._eps_inv, self._eps, self._absq_j, self._inv_absq_j,
                                             self.shift, **self._state)
-            w = defl(proj(np.asarray(w)))
+            w = w0 + defl(proj(np.asarray(w)))
             res = np.linalg.norm(defl(self._theta(w[:, None])[:, 0] - lam * w) - b)
-            return w * scale, dict(iterations=int(steps), residual=res, info=0, min_gap=gaps.min())
+            return w * scale, dict(iterations=int(steps), residual=res, start_residual=res0, info=0, min_gap=gaps.min())
         others = np.delete(np.arange(X.shape[1]), band)
         Xo = X[:, others]
         x0 = Xo @ ((Xo.conj().T @ b) / (lam_all[others] - lam)) if start else None
@@ -808,9 +825,10 @@ def _minres_deflated_jit(b, Q, sigma, maxiter, rtol, eps_inv, eps, absq, inv_abs
     zero = jnp.zeros_like(b)
     y = m_op(b)
     beta1 = jnp.sqrt(jnp.maximum(jnp.real(jnp.vdot(b, y)), 0.0))
-    tiny = jnp.finfo(jnp.float64).tiny
-    state = dict(itn=0, x=zero, r1=b, r2=b, y=y, w=zero, w2=zero, beta=beta1, oldb=0.0, dbar=0.0, epsln=0.0,
-                 phibar=beta1, cs=-1.0, sn=0.0)
+    tiny = jnp.finfo(beta1.dtype).tiny
+    r0 = jnp.zeros((), beta1.dtype)  # the scalars carry the operands' precision (complex64 arrays give a single-precision loop)
+    state = dict(itn=0, x=zero, r1=b, r2=b, y=y, w=zero, w2=zero, beta=beta1, oldb=r0, dbar=r0, epsln=r0,
+                 phibar=beta1, cs=r0 - 1, sn=r0)
 
     def cond(st):
         return (st["itn"] < maxiter) & (st["phibar"] > rtol * beta1) & (beta1 > 0)

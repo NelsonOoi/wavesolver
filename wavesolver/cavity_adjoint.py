@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import time
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import jax
 import jax.numpy as jnp
@@ -32,8 +32,9 @@ import numpy as np
 
 from .cavity import MechCavity
 from .cavity_optics import CavityOptics
-from .coupling import HBAR, MASS_UNIT, mech_mode
+from .coupling import HBAR, MASS_UNIT, MechMode, mech_mode
 from .coupling_adjoint import _apply, _curl, _eps_tensor, _optical_inputs, _theta_bilinear_grad, block_mean_adjoint, omega_rel, optomech_functional
+from .linalg import factorize_indefinite
 from .mech_adjoint import eigenvector_adjoint_solver
 from .mech_bloch import OMEGA_UNIT
 from .optics_pwe import C_UM_PER_PS, PWESolver
@@ -57,11 +58,13 @@ class CavityGradient:
 
 
 def cavity_g0_gradient(co: CavityOptics, s: PWESolver, cav: MechCavity, mech_freq: float, x_mech: np.ndarray, fine_shape: tuple[int, int],
-                       band: int = 0, adjoint_tol: float = 1e-3, adjoint_maxiter: int = 600) -> CavityGradient:
+                       band: int = 0, adjoint_tol: float = 1e-3, adjoint_maxiter: int = 600, extra=None) -> CavityGradient:
     """
     co: set_design done on the same design and co.mode the cavity mode (mech_freq Hz, eigenvector
     x_mech on cav.solver's DOFs, real at Γ, closed cavity: no absorber); s: the solved window
     PWESolver (co.solve(...).solver); fine_shape: the whole domain's fine raster.
+    extra: callable g0 → (a, r_e, gf_e) (see optomech_functional's rhs_extra): d_g0 is then the
+    gradient of a·g0 + E (E another functional of the optical mode) by the same optical adjoint.
     """
     info: dict = {}
     t0 = time.perf_counter()
@@ -85,8 +88,14 @@ def cavity_g0_gradient(co: CavityOptics, s: PWESolver, cav: MechCavity, mech_fre
     x_zpf = np.sqrt(HBAR / (2 * yMy * MASS_UNIT * omega_m))
     info["t_setup"] = time.perf_counter() - t0
 
+    a_g = [1.0]
+
+    def rhs_extra(L):  # the combined right-hand side: L·x_zpf = g0 carries the weight a(g0), E is unscaled
+        a_g[0], r_e, gf_e = extra(L * x_zpf)
+        return a_g[0] * x_zpf, r_e, gf_e
+
     core = optomech_functional(s, band, mode, co.fine, cav.fraction, co.p, strain_supersample=co.ratio, minres_tol=adjoint_tol,
-                               minres_maxiter=adjoint_maxiter, to_mode=co.win.to_mode, minres_jax=True)
+                               minres_maxiter=adjoint_maxiter, to_mode=co.win.to_mode, minres_jax=True, rhs_extra=rhs_extra if extra else None)
     info.update(core["info"])
     L, rel_mb, rel_pe, lam_o = core["L"], core["rel_mb"], core["rel_pe"], core["lam_o"]
     g0 = L * x_zpf
@@ -117,8 +126,12 @@ def cavity_g0_gradient(co: CavityOptics, s: PWESolver, cav: MechCavity, mech_fre
     m1, m2 = fine_shape[0] // w.n1m, fine_shape[1] // w.n2m
     sl = (slice(w.i0 * m1, (w.i0 + w.n1w) * m1), slice(w.j0 * m2, (w.j0 + w.n2w) * m2))
     d_g0_mech = block_mean_adjoint(d_mech, fine_shape)
-    d_g0 = d_g0_mech.copy()
-    d_g0[sl] += x_zpf * core["gfine"] + block_mean_adjoint(x_zpf * core["d_opt"], co.fine.shape)
+    if extra:  # d_opt is already the combined a·g0 + E optical part
+        d_g0 = a_g[0] * d_g0_mech
+        d_g0[sl] += a_g[0] * x_zpf * core["gfine"] + block_mean_adjoint(core["d_opt"], co.fine.shape)
+    else:
+        d_g0 = d_g0_mech.copy()
+        d_g0[sl] += x_zpf * core["gfine"] + block_mean_adjoint(x_zpf * core["d_opt"], co.fine.shape)
     d_fo = np.zeros(fine_shape)
     d_fo[sl] = block_mean_adjoint(s.sensitivities([band])[0], co.fine.shape)
     d_fm = block_mean_adjoint(mech_freq / (2 * lam_m) * dlam_m, fine_shape)
@@ -348,5 +361,342 @@ def footprint_gradient(co: CavityOptics, s: PWESolver, mask: np.ndarray, fine_sh
     return float(F), out, info
 
 
-__all__ = ["CavityGradient", "cavity_g0_gradient", "footprint_fraction", "footprint_gradient", "light_cone_gradient", "mech_freq_gradient", "mech_share",
-           "mech_share_gradient", "mode_volume", "mode_volume_gradient"]
+def optical_loss_terms(s: PWESolver, mask: np.ndarray, c_lc: float, band: int = 0) -> tuple[float, float, np.ndarray, np.ndarray]:
+    """
+    `optical_loss_gradient`'s LC and F_w with the loss c_lc·LC + F_w's eigenvector gradient r (an
+    adjoint_solve right-hand side, at the unit eigenvector) and explicit gradient in the optical fill:
+    (LC, F_w, r, gf). Also the `extra` terms of cavity_g0_gradient.
+    """
+    x = s.last_vectors[:, band]
+    x = x / np.linalg.norm(x)
+    P = light_cone_mask(s, float(s._last_freqs[band]))
+    lc = float(np.sum(np.abs(x[P]) ** 2))
+    oi = _optical_inputs(s)
+    st = (jnp.asarray(s.u), jnp.asarray(s.v), jnp.asarray(s.absq))
+    args = (oi["g"], oi["dg"], oi["rb"], oi["eta"], oi["es"], oi["eb"]) + st + (jnp.asarray(mask, float),)
+    F, (gr, gi, gf) = _footprint_vg(jnp.asarray(x.real), jnp.asarray(x.imag), oi["f"], *args)
+    r = c_lc * 2 * (np.where(P, x, 0) - lc * x) + np.asarray(gr) + 1j * np.asarray(gi)
+    return lc, float(F), r, np.asarray(gf)
+
+
+def optical_loss_gradient(co: CavityOptics, s: PWESolver, mask: np.ndarray, c_lc: float, fine_shape: tuple[int, int], band: int = 0,
+                          adjoint_tol: float = 1e-3, adjoint_maxiter: int = 600) -> tuple[float, float, np.ndarray, dict]:
+    """
+    A loss rate 1/Q = c_lc·LC + F_w (F_w: `footprint_fraction` with a weighted mask, e.g. Σ_c m_c / K_c
+    over loss regions c with Q_c ≈ K_c / F_c) and d(1/Q)/df_fine by ONE optical adjoint: the
+    eigenvector right-hand sides of `light_cone_gradient` and `footprint_gradient` add, so their
+    weighted sum costs one MINRES solve instead of one each. Returns (LC, F_w, gradient, info).
+    """
+    lc, F, r, gf = optical_loss_terms(s, mask, c_lc, band)
+    w, info = s.adjoint_solve(band, r, tol=adjoint_tol, maxiter=adjoint_maxiter, jax=True)
+    oi = _optical_inputs(s)
+    st = (jnp.asarray(s.u), jnp.asarray(s.v), jnp.asarray(s.absq))
+    x = s.last_vectors[:, band] / np.linalg.norm(s.last_vectors[:, band])
+    ew = _curl(jnp.asarray(w.real), jnp.asarray(w.imag), *st)
+    ex = _curl(jnp.asarray(x.real), jnp.asarray(x.imag), *st)
+    d_opt = gf - np.asarray(_theta_bilinear_grad(oi["f"], ew, ex, oi["g"], oi["dg"], oi["rb"], oi["eta"], oi["es"], oi["eb"]))
+    win = co.win
+    m1, m2 = fine_shape[0] // win.n1m, fine_shape[1] // win.n2m
+    out = np.zeros(fine_shape)
+    out[win.i0 * m1 : (win.i0 + win.n1w) * m1, win.j0 * m2 : (win.j0 + win.n2w) * m2] = block_mean_adjoint(d_opt, co.fine.shape)
+    return lc, float(F), out, info
+
+
+# --- radiation Q from the polarisation current ------------------------------------------------
+#
+# In the H form, ∇×∇×H − k0²H = ∇×J with J = (1 − ε⁻¹) ∇×H the polarisation current, confined to the
+# slab. So a box plane wave's amplitude is H(G) = iG×J(G) / (G² − k0²): LC measures J off shell, times a
+# denominator set by the box height. The radiated power needs only the amplitudes on the light cone,
+# where the box plays no part. For a window of area A, in units ε0 = μ0 = c = 1 (ω = k0),
+#     P = Σ_q k0 / (8 k_z A) T(q),   U = ∫ e*·ε⁻¹e d³r / (2 k0²),
+# so Q = k0 U / P = 4 A Σ(e*·ε⁻¹e) / (k0² dV Σ_q T(q) / k_z) with Ĵ the voxel sum. The in-plane transform is
+# oversampled (pad; (4, 4) is within 1% of (8, 8) on a TF13 cavity), and 1/k_z is averaged over each q cell
+# (it is integrable at the cone edge), so the sum varies smoothly as the edge crosses the grid.
+#
+# T comes by reciprocity from the radiation modes of a uniform slab of ε̄ (Fermi's golden rule, as guided-mode
+# expansion): a = ∫ J'·F, with J' = (ε − ε̄)E the current beyond the slab's own response and F the slab's field
+# for a unit plane wave incident from the opposite direction. For the even pair of incident waves (z-even mode),
+#     TE: a_s = C_s Σ_z cos(κz) ŝ·Ĵ',                        C_s = 2 k_z / (k_z cos(κt/2) − iκ sin(κt/2)),
+#     TM: a_p = C_p Σ_z [cos(κz) q̂·Ĵ' + i(q/κ) sin(κz) Ĵ'_z],  C_p = 2 (k_z/k0) / (cos(κt/2) − i(k_z ε̄/κ) sin(κt/2)),
+# with κ² = ε̄k0² − q² and T = (|a_s|² + |a_p|²) / 2 (validation/far_field_q_check.py: against the 1D wave equation).
+# A membrane reflects grazing light (C → 0 with k_z), so this differs from J radiating into free space (ε̄ = 1),
+# which gives most of its power to the cone edge and reads a Q 5–7× lower on TF13 cavities. Against COMSOL's total Q
+# with fine outlines (research/cavity_comsol_optics.py --simplify 0.002, or less: the default 5 nm facets act as sidewall
+# roughness and limit Q near 1e5) this form is within 1.3× at Q ≈ 7e4, and 4× high at 1e6, a 1/Q gap of ~3e-6 at both.
+#
+# Solve the mode with PWESolver(no_shell_thz=f_o): the plane waves in the cone within half a k_z spacing of
+# the shell, ||q + G| − k0| < π/H, out of the basis. Their denominator above is small and set by the box
+# height, so with them the mode hybridises with box modes: J picks up their polarisation, this Q does not
+# converge with the solver's tolerance and collapses when f_o crosses one, and Jacobi-Davidson and MINRES stall.
+
+
+def _cone_weights(k0: float, qx: np.ndarray, qy: np.ndarray, dqx: float, dqy: float, n_y: int = 8) -> np.ndarray:
+    """Mean over each q cell of θ(k0 − |q|) / √(k0² − |q|²): exact in q_x, midpoint in q_y."""
+    t = (np.arange(n_y) + 0.5) / n_y - 0.5
+    out = np.zeros(len(qx))
+    for ty in t:
+        kap2 = k0**2 - (qy + ty * dqy) ** 2
+        inside = kap2 > 0
+        kap = np.sqrt(np.where(inside, kap2, 1.0))
+        hi = np.clip((qx + dqx / 2) / kap, -1, 1)
+        lo = np.clip((qx - dqx / 2) / kap, -1, 1)
+        out += np.where(inside, np.arcsin(hi) - np.arcsin(lo), 0.0)
+    return out / (n_y * dqx)
+
+
+def _far_tables(s: PWESolver, k0: float, pad: tuple[int, int]) -> dict:
+    """The oversampled in-plane q cells touching the cone (margin of a cell for the edge's move with k0)."""
+    n1, n2, nz = s.shape
+    L = s.cell.lattice.vectors
+    if abs(L[0, 1]) > 1e-12 or abs(L[1, 0]) > 1e-12:
+        raise ValueError("far-field Q needs a rectangular window")
+    L1, L2 = L[0, 0], L[1, 1]
+    N1 = n1 * pad[0]
+    dqx, dqy = 2 * np.pi / (L1 * pad[0]), 2 * np.pi / (L2 * pad[1])
+    qx_all = np.fft.fftfreq(N1, 1 / N1) * dqx
+    m = int(np.ceil((k0 + dqy) / dqy))
+    qy_all = np.arange(-m, m + 1) * dqy
+    near_x, near_y = np.maximum(np.abs(qx_all) - dqx, 0), np.maximum(np.abs(qy_all) - dqy, 0)
+    ix, iy = np.nonzero(near_x[:, None] ** 2 + near_y[None, :] ** 2 < (k0 + 2 * dqx) ** 2)
+    dz = s.cell.height / nz
+    z = np.arange(nz) * dz
+    z = np.where(z > s.cell.height / 2, z - s.cell.height, z)
+    sel = np.flatnonzero(s.cell.z_cover > 0)
+    y = np.arange(n2) * L2 / n2
+    return dict(ix=ix, iy=iy, qx=qx_all[ix], qy=qy_all[iy], dqx=dqx, dqy=dqy, sel=sel, z=z[sel], N1=N1, Ey=np.exp(-1j * np.outer(y, qy_all)),
+                dV=abs(np.linalg.det(L)) * s.cell.height / (n1 * n2 * nz), A=L1 * L2, pad=pad, t=float(s.cell.z_cover.sum() * dz), cover=s.cell.z_cover[sel])
+
+
+def _far_terms(Jq, qx, qy, z, k0, eps_bar=1.0, t=0.0):
+    """T(q) of the block comment for Jq (3, nq, ns) on the z planes z, in a slab of ε̄ and thickness t (k_z → 0 beyond the cone's edge; ε̄ = 1: free space)."""
+    q2 = qx**2 + qy**2
+    eps = 1e-6 * k0
+    kz = jnp.sqrt(jnp.maximum(k0**2 - q2, eps**2))
+    kap = jnp.sqrt(jnp.maximum(eps_bar * k0**2 - q2, eps**2))
+    q = jnp.sqrt(jnp.maximum(q2, eps**2))
+    c, s = jnp.cos(kap * t / 2), jnp.sin(kap * t / 2)
+    Cs = 2 * kz / (kz * c - 1j * kap * s)
+    Cp = 2 * (kz / k0) / (c - 1j * (kz * eps_bar / kap) * s)
+    cz, sz = jnp.cos(kap[:, None] * z), jnp.sin(kap[:, None] * z)
+    a_s = Cs * (cz * (qx[:, None] * Jq[1] - qy[:, None] * Jq[0])).sum(axis=-1) / q
+    a_p = Cp * ((cz * (qx[:, None] * Jq[0] + qy[:, None] * Jq[1])).sum(axis=-1) / q + 1j * (q / kap) * (sz * Jq[2]).sum(axis=-1))
+    return (jnp.abs(a_s) ** 2 + jnp.abs(a_p) ** 2) / 2
+
+
+def _far_current(e, w, sel, N1, Ey, ix, iy, eb):
+    """Ĵ'(q, z) (3, nq, ns): (1 − ε̄ ε⁻¹)e on the slab's z planes (eb: ε̄ on them), transformed along y (explicit q_y) and x (padded FFT)."""
+    J = e[:, :, :, sel] - eb * _apply(w, e)[:, :, :, sel]
+    Jy = jnp.einsum("cijs,jm->cims", J, Ey)
+    return jnp.fft.fft(Jy, n=N1, axis=1)[:, ix, iy]
+
+
+def _far_lnq(xr, xi, f, g, dg, rb, eta, es, eb, u, v, absq, sel, N1, Ey, ix, iy, qx, qy, z, W, k0, c, eps_z, eps_bar, t):
+    """ln Q (c: the prefactor 4 A / (k0² dV) · pad1 pad2; eps_z: ε̄ on the z planes, as `_far_tables`' cover) for fixed k0; the mode's scale cancels."""
+    e = _curl(xr, xi, u, v, absq)
+    _, _, w, _, _, _ = _eps_tensor(f, g, dg, rb, eta, es, eb)
+    den = jnp.sum(jnp.real(jnp.conj(e) * _apply(w, e)))
+    Jq = _far_current(e, w, sel, N1, Ey, ix, iy, eps_z)
+    return jnp.log(c) + jnp.log(den) - jnp.log(jnp.sum(W * _far_terms(Jq, qx, qy, z, k0, eps_bar, t)))
+
+
+_far_lnq_vg = jax.jit(jax.value_and_grad(_far_lnq, argnums=(0, 1, 2)), static_argnums=(13,))
+
+
+def mean_slab_eps(s: PWESolver) -> float:
+    """The window's mean ε over the slab: a default ε̄ for the far-field Q. A design run should hold one value, so that Q is a smooth function of the design."""
+    c = s.cell
+    k = int(np.argmax(c.z_cover))
+    return c.eps_background + (c.eps_slab - c.eps_background) * float(np.mean(c.fill[:, :, k])) / float(c.z_cover[k])
+
+
+def _far_setup(s: PWESolver, x, band: int, pad: tuple[int, int], eps_bar: float | None):
+    f_thz = float(s._last_freqs[band])
+    k0 = 2 * np.pi * f_thz / C_UM_PER_PS
+    tab = _far_tables(s, k0, pad)
+    tab["eps_bar"] = mean_slab_eps(s) if eps_bar is None else float(eps_bar)
+    tab["eps_z"] = 1 + (tab["eps_bar"] - 1) * tab["cover"]
+    oi = _optical_inputs(s)
+    st = (jnp.asarray(s.u), jnp.asarray(s.v), jnp.asarray(s.absq))
+    e = _curl(jnp.asarray(x.real), jnp.asarray(x.imag), *st)
+    _, _, w, _, _, _ = _eps_tensor(oi["f"], oi["g"], oi["dg"], oi["rb"], oi["eta"], oi["es"], oi["eb"])
+    den = float(jnp.sum(jnp.real(jnp.conj(e) * _apply(w, e))))
+    Jq = _far_current(e, w, jnp.asarray(tab["sel"]), tab["N1"], jnp.asarray(tab["Ey"]), jnp.asarray(tab["ix"]), jnp.asarray(tab["iy"]), jnp.asarray(tab["eps_z"]))
+
+    def lnq_at(kk: float) -> float:
+        """ln Q at wavenumber kk for the fixed current: the cone edge, the slab's modes and the prefactor move."""
+        W = _cone_weights(kk, tab["qx"], tab["qy"], tab["dqx"], tab["dqy"])
+        T = _far_terms(Jq, jnp.asarray(tab["qx"]), jnp.asarray(tab["qy"]), jnp.asarray(tab["z"]), kk, tab["eps_bar"], tab["t"])
+        c = 4 * tab["A"] / (kk**2 * tab["dV"]) * pad[0] * pad[1]
+        return float(np.log(c) + np.log(den) - np.log(float(jnp.sum(jnp.asarray(W) * T))))
+
+    return k0, tab, oi, st, lnq_at
+
+
+def far_field_q(s: PWESolver, band: int = 0, pad: tuple[int, int] = (4, 4), x: np.ndarray | None = None, eps_bar: float | None = None) -> dict:
+    """
+    Radiation Q of a window mode (the block comment above), z-even. Q and its k0 sensitivity dlnQ/dk0
+    at the fixed current (per µm⁻¹, the cone's move with the frequency). x: another field than the
+    band's. eps_bar: ε̄ of the slab's radiation modes (default `mean_slab_eps`; 1: free space).
+    """
+    x = s.last_vectors[:, band] if x is None else x
+    k0, tab, oi, st, lnq_at = _far_setup(s, x, band, pad, eps_bar)
+    h = tab["dqx"] / 2
+    lnq = lnq_at(k0)
+    return dict(Q=float(np.exp(lnq)), lnq=lnq, k0=k0, dlnq_dk0=(lnq_at(k0 + h) - lnq_at(k0 - h)) / (2 * h))
+
+
+def far_field_q_gradient(co: CavityOptics, s: PWESolver, fine_shape: tuple[int, int], band: int = 0, pad: tuple[int, int] = (4, 4), adjoint_tol: float = 1e-3,
+                         adjoint_maxiter: int = 600, eps_bar: float | None = None) -> tuple[float, np.ndarray, dict]:
+    """`far_field_q`'s Q and d ln Q / df_fine on the whole fine raster, by one optical adjoint; `far_field_q_terms` gives the terms to merge it with g0's."""
+    q, r, gf, dfo_term = far_field_q_terms(s, band, pad, eps_bar)
+    w, info = s.adjoint_solve(band, r, tol=adjoint_tol, maxiter=adjoint_maxiter, jax=True)
+    oi = _optical_inputs(s)
+    st = (jnp.asarray(s.u), jnp.asarray(s.v), jnp.asarray(s.absq))
+    x = s.last_vectors[:, band]
+    ew = _curl(jnp.asarray(w.real), jnp.asarray(w.imag), *st)
+    ex = _curl(jnp.asarray(x.real), jnp.asarray(x.imag), *st)
+    d_opt = np.asarray(gf) - np.asarray(_theta_bilinear_grad(oi["f"], ew, ex, oi["g"], oi["dg"], oi["rb"], oi["eta"], oi["es"], oi["eb"])) + dfo_term
+    win = co.win
+    m1, m2 = fine_shape[0] // win.n1m, fine_shape[1] // win.n2m
+    out = np.zeros(fine_shape)
+    out[win.i0 * m1 : (win.i0 + win.n1w) * m1, win.j0 * m2 : (win.j0 + win.n2w) * m2] = block_mean_adjoint(d_opt, co.fine.shape)
+    return q, out, info
+
+
+def far_field_q_terms(s: PWESolver, band: int = 0, pad: tuple[int, int] = (4, 4), eps_bar: float | None = None) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    ln Q's gradient pieces at the unit eigenvector: (Q, r, gf, dfo_term) with r the eigenvector right-hand side of
+    an optical adjoint, gf the explicit gradient in the optical fill and dfo_term = (∂ln Q/∂k0)(dk0/df_o) the cone's
+    move with the frequency (Hellmann–Feynman), all on the window's optical grid.
+    """
+    x = s.last_vectors[:, band]
+    x = x / np.linalg.norm(x)
+    k0, tab, oi, st, lnq_at = _far_setup(s, x, band, pad, eps_bar)
+    h = tab["dqx"] / 2
+    dlnq = (lnq_at(k0 + h) - lnq_at(k0 - h)) / (2 * h)
+    W = _cone_weights(k0, tab["qx"], tab["qy"], tab["dqx"], tab["dqy"])
+    c = 4 * tab["A"] / (k0**2 * tab["dV"]) * pad[0] * pad[1]
+    lnq, (gr, gi, gf) = _far_lnq_vg(jnp.asarray(x.real), jnp.asarray(x.imag), oi["f"], oi["g"], oi["dg"], oi["rb"], oi["eta"], oi["es"], oi["eb"], *st,
+                                    jnp.asarray(tab["sel"]), tab["N1"], jnp.asarray(tab["Ey"]), jnp.asarray(tab["ix"]), jnp.asarray(tab["iy"]),
+                                    jnp.asarray(tab["qx"]), jnp.asarray(tab["qy"]), jnp.asarray(tab["z"]), jnp.asarray(W), k0, c, jnp.asarray(tab["eps_z"]), tab["eps_bar"], tab["t"])
+    r = np.asarray(gr) + 1j * np.asarray(gi)
+    dfo_term = dlnq * (2 * np.pi / C_UM_PER_PS) * s.sensitivities([band])[0]
+    return float(np.exp(lnq)), r, np.asarray(gf), dfo_term
+
+
+# --- driven mechanical response --------------------------------------------------------------
+#
+# g0 of one mechanical eigenmode is undefined at a crossing, and a design step can hand its coupling to a
+# neighbour. So drive the mechanics with the optical force instead: F = ∂L/∂û (L, linear in û: optomech_functional),
+#     (K − zM) u = F,   z = (2π (f + iγ) / Ω_unit)² = σ + iΓ,
+# and with M-normalised modes y_k of K y = λ M y, u = Σ y_k (y_kᵀF) / (λ_k − z), so
+#     G² = C Γ Im(Fᵀu) = Σ_k g_k² (Ω_k / Ω) Γ² / ((λ_k − σ)² + Γ²),   C = ħ / (2 m_unit Ω),
+# the g_k² of all modes under a unit-peak Lorentzian of half width γ (Hz) at f. A single mode at f gives G = |g0|.
+# G² has no mode to track: a crossing moves g² between two modes and leaves their sum in place, and narrowing γ
+# puts the coupling into one mode. Its gradient is one mechanical solve and one optical adjoint, the same as g0's:
+#     dG² = C Γ [2 dFᵀ Im(u) − Im uᵀ(dK − z dM) u],
+# dFᵀv at fixed v = Im(u) being optomech_functional's explicit and optical gradients with v in place of a mode.
+
+
+@dataclass
+class DrivenResponse:
+    """G² (rad/s)² at (f, γ), and with gradients: d_J on the fine raster of J = a(G²) + E (see `cavity_driven_response`), d_fo, d_fm."""
+
+    G2: float
+    f: float
+    gamma: float
+    F: np.ndarray  # the optical force on the solver's DOFs
+    L_v: float | None = None
+    d_J: np.ndarray | None = None
+    d_J_mech: np.ndarray | None = None  # the part of d_J through the mechanical element fractions (the rest is the window raster's)
+    d_fo: np.ndarray | None = None
+    w: np.ndarray | None = None  # the optical adjoint: first order in the eigenvector's residual, J(exact mode) = J − Re(wᴴ(Θx − θx))
+    info: dict = field(default_factory=dict)
+
+
+def _mode_with(mode: MechMode, solver, v: np.ndarray) -> MechMode:
+    """`mode` with its coefficients replaced by v on the solver's DOFs (optomech_functional is linear in them)."""
+    n1, n2, dpn = mode.coef.shape
+    full = np.zeros(n1 * n2 * dpn)
+    full[solver.dofs] = v
+    return replace(mode, coef=full.reshape(n1, n2, dpn))
+
+
+def optical_force(co: CavityOptics, s: PWESolver, cav: MechCavity, band: int = 0) -> np.ndarray:
+    """F = ∂L/∂û on the mechanical solver's DOFs: L[v] = Fᵀv for any v. Depends on the optical mode and the rasters, not on co.mode."""
+    core = optomech_functional(s, band, co.mode, co.fine, cav.fraction, co.p, strain_supersample=co.ratio, adjoint=False, to_mode=co.win.to_mode)
+    return np.asarray(core["gcoef"]).reshape(-1)[cav.solver.dofs]
+
+
+def mode_couplings(F: np.ndarray, cav: MechCavity, freqs: np.ndarray, X: np.ndarray) -> np.ndarray:
+    """|g_k| (rad/s) of mechanical modes (freqs Hz, eigenvectors X on the solver's DOFs) from the force, without any further solve."""
+    _, M = cav.solver.matrices(np.zeros(2))
+    X = np.real(X)
+    yMy = np.einsum("ib,ib->b", X, M.real @ X)
+    return np.abs(F @ X) * np.sqrt(HBAR / (2 * yMy * MASS_UNIT * 2 * np.pi * np.asarray(freqs)))
+
+
+def lorentz_g2(g: np.ndarray, freqs: np.ndarray, f: float, gamma: float) -> float:
+    """G² from a table of modes (their g_k, rad/s, and frequencies, Hz): the sum in the block comment, in frequency, near f."""
+    d = (np.asarray(freqs) ** 2 - (f**2 - gamma**2)) / (2 * f * gamma)
+    return float(np.sum(np.asarray(g) ** 2 * (np.asarray(freqs) / f) / (1 + d**2)))
+
+
+def cavity_driven_response(co: CavityOptics, s: PWESolver, cav: MechCavity, f: float, gamma: float, fine_shape: tuple[int, int], band: int = 0, F: np.ndarray | None = None,
+                           adjoint: bool = True, adjoint_tol: float = 1e-3, adjoint_maxiter: int = 600, extra=None, w0: np.ndarray | None = None) -> DrivenResponse:
+    """
+    G² at f ± γ (Hz) on a closed cavity. co: set_design done, co.mode any mode of the same solver (used for its grid); s: the solved window PWESolver. adjoint: also d_J,
+    with J = G² or, given extra: callable G² → (a, r_e, gf_e, dfo_e), J = a(G²) + E with a the local slope dJ/dG², E a functional of the optical mode (eigenvector right-hand
+    side r_e, explicit optical-fill gradient gf_e, a term dfo_e added to the optical-grid gradient), all through one optical adjoint.
+    w0: that adjoint's start, the w of a previous design.
+    """
+    t0 = time.perf_counter()
+    solver, P = cav.solver, cav.P
+    Kc, Mc = solver.matrices(np.zeros(2))
+    K, M = Kc.real.tocsr(), Mc.real.tocsr()
+    F = optical_force(co, s, cav, band) if F is None else F
+    info = dict(t_force=time.perf_counter() - t0)
+    t1 = time.perf_counter()
+    z = (2 * np.pi * (f + 1j * gamma) / OMEGA_UNIT) ** 2
+    Gam = float(z.imag)
+    if P is not None:
+        solve = factorize_indefinite((P.T @ K @ P - z * (P.T @ M @ P)).tocsc())
+        u = P @ solve((P.T @ F).astype(complex))
+        info["odd_force"] = float(np.linalg.norm(F - P @ (P.T @ F)) / np.linalg.norm(F))
+    else:
+        solve = factorize_indefinite((K - z * M).tocsc())
+        u = solve(F.astype(complex))
+    C = HBAR / (2 * MASS_UNIT * 2 * np.pi * f)
+    v = u.imag
+    G2 = C * Gam * float(F @ v)
+    info["t_response"] = time.perf_counter() - t1
+    if not adjoint:
+        return DrivenResponse(G2, f, gamma, F, info=info)
+
+    a, r_e, gf_e, dfo_e = extra(G2) if extra is not None else (1.0, 0.0, 0.0, 0.0)
+    mode_v = _mode_with(co.mode, solver, v)
+    t2 = time.perf_counter()
+    core = optomech_functional(s, band, mode_v, co.fine, cav.fraction, co.p, strain_supersample=co.ratio, minres_tol=adjoint_tol, minres_maxiter=adjoint_maxiter,
+                               to_mode=co.win.to_mode, minres_jax=True, rhs_extra=lambda _L: (a * 2 * C * Gam, r_e, gf_e), minres_x0=w0)
+    info.update(core["info"], t_core=time.perf_counter() - t2)
+    part = solver.parts[0]
+    ok = part.edof >= 0
+    Ue = np.where(ok, u[np.maximum(part.edof, 0)], 0.0)
+    n1, n2 = solver.shape
+    form = np.imag((Ue * (Ue @ part.Ke.T - z * (Ue @ part.Me.T))).sum(axis=1))
+    d_mech = a * C * Gam * (2 * core["gfm"] - np.bincount(part.cell, weights=form, minlength=n1 * n2).reshape(n1, n2))
+    w = co.win
+    m1, m2 = fine_shape[0] // w.n1m, fine_shape[1] // w.n2m
+    sl = (slice(w.i0 * m1, (w.i0 + w.n1w) * m1), slice(w.j0 * m2, (w.j0 + w.n2w) * m2))
+    d_J_mech = block_mean_adjoint(d_mech, fine_shape)
+    d_J = d_J_mech.copy()
+    d_J[sl] += a * 2 * C * Gam * core["gfine"] + block_mean_adjoint(core["d_opt"] + dfo_e, co.fine.shape)
+    d_fo = np.zeros(fine_shape)
+    d_fo[sl] = block_mean_adjoint(s.sensitivities([band])[0], co.fine.shape)
+    info["t_total"] = time.perf_counter() - t0
+    return DrivenResponse(G2, f, gamma, F, L_v=core["L"], d_J=d_J, d_J_mech=d_J_mech, d_fo=d_fo, w=core["w"], info=info)
+
+
+__all__ = ["CavityGradient", "DrivenResponse", "cavity_driven_response", "cavity_g0_gradient", "far_field_q", "far_field_q_gradient", "far_field_q_terms", "footprint_fraction",
+           "footprint_gradient", "light_cone_gradient", "lorentz_g2", "mean_slab_eps", "mech_freq_gradient", "mech_share", "mech_share_gradient", "mode_couplings", "mode_volume", "mode_volume_gradient",
+           "optical_force", "optical_loss_gradient", "optical_loss_terms"]

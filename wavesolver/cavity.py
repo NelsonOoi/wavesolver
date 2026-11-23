@@ -186,12 +186,12 @@ class MechCavity:
 
 def mech_cavity(
     domain: CavityDomain, material, n_cell: int = 15, n2: int | None = None, order: int = 4, supersample: int = 4, sym_y: bool = False,
-    min_fraction: float = 1e-3, loads: list | None = None,
+    min_fraction: float = 1e-3, loads: list | None = None, sym_x: bool = False,
 ) -> MechCavity:
     """
     slab_p (even) solver on the domain, n_cell elements per column along x and n2 along a2
     (default ≈ a/n_cell, rounded to even; both taken from the rasters of a raster-built domain). sym_y (rectangular domain only): keep the σ_y-even
-    subspace, u(x, −y) = (u_x, −u_y, u_z)(x, y), as an exact reduction P of the DOFs.
+    subspace, u(x, −y) = (u_x, −u_y, u_z)(x, y), as an exact reduction P of the DOFs. sym_x: the same for σ_x, u(−x, y) = (−u_x, u_y, u_z)(x, y); not with sym_y.
     min_fraction: elements kept by the solver (≈ 1e-9 for shape gradients, see wavesolver.coupling_adjoint).
     loads: BlochSolver membrane loads [(material, thickness µm, fraction (n1, n2))] on the same grid
     (e.g. an LN/Al transducer on part of the chain); fixed, not design variables.
@@ -208,19 +208,23 @@ def mech_cavity(
     if sym_y:
         if domain.lattice.vectors[1, 0] != 0 or n2 % 2:
             raise ValueError("sym_y needs a rectangular domain (skew=False) and an even n2")
-        cav.P = _sym_y_basis(solver)
+        cav.P = _mirror_basis(solver, 1)
+    if sym_x:
+        if domain.lattice.vectors[1, 0] != 0 or n1 % 2:
+            raise ValueError("sym_x needs a rectangular domain (skew=False) and an even n1")
+        cav.P = _mirror_basis(solver, 0)
     return cav
 
 
-def _sym_y_basis(solver: BlochSolver) -> sp.csr_matrix:
-    """Orthonormal basis of the σ_y-even DOF subspace: node (i, j) ↔ (i, −j mod n2), u_y flips sign."""
+def _mirror_basis(solver: BlochSolver, axis: int) -> sp.csr_matrix:
+    """Orthonormal basis of the DOF subspace even under the mirror across `axis` (1: σ_y, node (i, j) ↔ (i, −j mod n2), u_y flips sign; 0: σ_x, (i, j) ↔ (−i mod n1, j), u_x flips sign)."""
     n1, n2 = solver.shape
     dpn = len(solver.basis)
     g = solver.dofs
     node, b = g // dpn, g % dpn
     i, j = node // n2, node % n2
-    partner = (i * n2 + (-j) % n2) * dpn + b
-    sign = np.where(np.array([c for c, _ in solver.basis])[b] == 1, -1.0, 1.0)
+    partner = ((i * n2 + (-j) % n2) if axis == 1 else (((-i) % n1) * n2 + j)) * dpn + b
+    sign = np.where(np.array([c for c, _ in solver.basis])[b] == axis, -1.0, 1.0)
     pos = np.full(g.max() + 1, -1)
     pos[g] = np.arange(len(g))
     q = pos[partner]

@@ -426,8 +426,8 @@ class DefectDensity:
         gv = jnp.sum(m * (1 - rb) * ind * jnp.minimum(eta_d - rt, 0) ** 2) / jnp.sum(m)
         return jnp.stack([gs, gv])
 
-    def length_scale(self, x, eta_e: float = 0.75, eta_d: float = 0.25) -> tuple[np.ndarray, np.ndarray]:
-        """Solid and void length-scale measures (≤ ε to satisfy) and gradients (2, n_vars)."""
+    def length_scale(self, x, eta_e: float = 0.75, eta_d: float = 0.25, beta: float | None = None) -> tuple[np.ndarray, np.ndarray]:
+        """Solid and void length-scale measures (≤ ε to satisfy) and gradients (2, n_vars). beta: the indicators' projection, default the design's own (give a finite one when that is ∞)."""
         h = self.layout.Lx / self.n1
         c = self.R**4 / h**2  # as parametrize.DensityCell (gradients per µm)
         key = ("ls", eta_e, eta_d)
@@ -436,7 +436,8 @@ class DefectDensity:
             self._fns[key] = (jax.jit(f), jax.jit(jax.jacrev(f)))
         v, g = self._fns[key]
         xj = jnp.asarray(x, float)
-        return np.asarray(v(xj, self.beta)), np.asarray(g(xj, self.beta))
+        b = self.beta if beta is None else beta
+        return np.asarray(v(xj, b)), np.asarray(g(xj, b))
 
 
 def morph_fine(dd: DefectDensity, x_a: np.ndarray, x_b: np.ndarray, s: float, eta: float | None = None, sharp: bool = False) -> np.ndarray:
@@ -449,10 +450,11 @@ def morph_fine(dd: DefectDensity, x_a: np.ndarray, x_b: np.ndarray, s: float, et
 
 
 def feature_check(layout: LineDefectLayout, fine_sharp: np.ndarray, min_feature: float = 0.08, window: float | None = None,
-                  min_void: float | None = None) -> dict:
+                  min_void: float | None = None, mask: np.ndarray | None = None) -> dict:
     """
     Raster opening check of a thresholded fine raster (fraction > 0.5 = Si) for the minimum
-    feature 2R = min_feature, for Si and void, in |y| < window (default: defect region + 1 row).
+    feature 2R = min_feature, for Si and void, in |y| < window (default: defect region + 1 row),
+    or on the fine pixels where mask (F1, F2) is set.
     Returns per phase the depth (µm) of the worst uncovered point beyond R and the uncovered
     area fraction, and the number of floating Si islands (components not touching the shield).
     """
@@ -469,7 +471,7 @@ def feature_check(layout: LineDefectLayout, fine_sharp: np.ndarray, min_feature:
     win = layout.W / 2 + layout.h if window is None else window
     y = layout.pixel_xy(F1, F2)[..., 1]
     centre = np.zeros_like(S)
-    centre[F1 : 2 * F1] = (np.abs(y) < win)
+    centre[F1 : 2 * F1] = (np.abs(y) < win) if mask is None else mask
     out = {}
     for name, phase, Rp in (("si", d, R), ("void", -d, R_void)):
         core = phase >= Rp
@@ -558,7 +560,7 @@ def sym_y_basis(solver: BlochSolver, parity: int = 1) -> sp.csr_matrix:
     """
     Orthonormal basis of the σ_y-even (parity +1) or -odd (−1) DOF subspace of a solver on a
     rectangular, y-symmetric grid: σ_y u(x, y) = (u_x, −u_y, u_z)(x, −y). parity +1 is
-    wavesolver.cavity._sym_y_basis.
+    wavesolver.cavity._mirror_basis(solver, 1).
     """
     n1, n2 = solver.shape
     dpn = len(solver.basis)

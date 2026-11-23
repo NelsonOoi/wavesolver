@@ -168,6 +168,8 @@ class CavityOptics:
     previous mode).
     """
 
+    no_shell_thz: float | None = None  # PWESolver's option for the window solves; a frequency near the cavity mode's, kept fixed over a design run
+
     def __init__(self, mode: MechMode, win: GridWindow, pitch: float, centre_col: int, thickness: float = 0.22, nz: int = 32,
                  slab_height: float = 1.5, eps_si: float = 3.48**2, in_row_half: float | None = None, p_si: np.ndarray = SI_P):
         self.mode, self.win, self.pitch, self.centre_col = mode, win, pitch, centre_col
@@ -201,7 +203,7 @@ class CavityOptics:
         target f_guess).
         """
         t0 = time.perf_counter()
-        s = PWESolver(self.cell, "even")
+        s = PWESolver(self.cell, "even", no_shell_thz=self.no_shell_thz)
         s._set_k(np.zeros(2))
         if x0 is None:
             x0, edge = local_bloch_start(s, defect_cell, self.win, self.pitch, self.centre_col, self.t, self.H, self.nz, self.eps_si,

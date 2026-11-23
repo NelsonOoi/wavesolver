@@ -768,7 +768,7 @@ def build_device(spec: DeviceSpec) -> Device:
 
 def linedefect_chain(design: str = "linedefect_opt_E1_x.npy", mirror: str = "eta:0.6", n_left: tuple[int, int] = (8, 4),
                      n_right: tuple[int, int] = (8, 8), Nt: float = 6.0, p: float = 2.0, rows: int = 3, beta: float = 32.0,
-                     sharp: bool = False, n1: int = 32):
+                     sharp: bool = False, n1: int = 32, band: float = 0.2834):
     """
     Cavity chain from an wavesolver.linedefect design (research/out/<design>) and its MorphFamily mirror:
     left (optical side) n_left = (taper half-length, mirror cells), right likewise; the morph s(n) =
@@ -779,7 +779,7 @@ def linedefect_chain(design: str = "linedefect_opt_E1_x.npy", mirror: str = "eta
 
     L = LineDefectLayout(default_shield(), rows=rows, n1=n1)
     x_d = np.load(OUT / design)
-    dd = density_for(L, x_d, beta=beta)
+    dd = density_for(L, x_d, beta=beta, band=band)
     fam = MorphFamily(dd, x_d, mirror, sharp=sharp)
     (hl, ml), (hr, mr) = n_left, n_right
     n = np.arange(-(hl + ml), hr + mr + 1)

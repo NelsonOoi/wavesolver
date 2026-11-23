@@ -62,7 +62,10 @@ Caveats found in the checks (validation/g0_gradient_check.py):
   gradients; fraction-level gradients are exact for either setting.
 - m_eff with tiny elements. With min_fraction ≈ 0 the max|û| node can be one attached only to
   an almost-empty element (a flapping node), whose amplitude is very sensitive to that
-  element's fraction: d_meff is then only locally valid. g0 is not affected (point 1).
+  element's fraction: d_meff is then only locally valid. g0 is not affected (point 1). A driven
+  response is: the central difference of a sharp raster puts half of the boundary's force on
+  the void pixel, so on such a node, whose u = F/K grows as 1/f. field_functional(solid_side=True)
+  moves the force to the Si side.
 Validation (blade cell, cubic Si; coarse GPT line defect): f_m, f_fine and edge f_o
 directions 1e-13 to 1e-5; smooth f_o 1e-4 (FD truncation ∝ h², from the regularised normals);
 block-mean chain 2e-4 (smooth) and 4e-7 (edge); tripod r, w 3e-5 and 5e-5.
@@ -78,6 +81,7 @@ import time
 import warnings
 from dataclasses import dataclass, field
 from functools import partial
+from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
@@ -179,6 +183,40 @@ def _optics_functional(xr, xi, f, dF, S, p, g, dg, rb, dz, eta, es, eb, u, v, ab
 _optics_vg = jax.jit(jax.value_and_grad(_optics_functional, argnums=(0, 1, 2, 3, 4), has_aux=True))
 
 
+def _optics_field(er, ei, f, dF, S, p, g, dg, rb, dz, eta, es, eb, omega):
+    """`_optics_functional` for a field e ∝ D given on the voxels, of any normalisation, at a fixed ω (rad/s): for fields from another solver."""
+    e = er + 1j * ei
+    F, eps, w, nrm, norm, aniso = _eps_tensor(f, g, dg, rb, eta, es, eb)
+    n1, n2, nz = F.shape
+    D = _apply(w, e)
+    den = jnp.sum(jnp.real(jnp.conj(e) * D))
+    a = -(es - eb) / eps**2
+    b = (1 / es - 1 / eb) - a
+    ne = (nrm * e).sum(axis=0)
+    dlam = a * _abs2(e).sum(axis=0) + b * _abs2(ne)
+    r = jnp.real(jnp.conj(e) * ne)
+    r = r - nrm * (nrm * r).sum(axis=0)
+    sv = 2 * aniso / norm * r
+    dlam = dlam + _central_adjoint(sv[0] * rb[0, 0] + sv[1] * rb[0, 1], 0, n1)
+    dlam = dlam + _central_adjoint(sv[0] * rb[1, 0] + sv[1] * rb[1, 1], 1, n2)
+    dlam = dlam + _central_adjoint(sv[2], 2, 1 / dz)
+    rel_mb = (dlam * dF).sum() / (2 * den)
+    d = jnp.tensordot(p, S, axes=(1, 0))
+    q = (
+        d[0] * _abs2(D[0])
+        + d[1] * _abs2(D[1])
+        + d[2] * _abs2(D[2])
+        + 2 * d[3] * jnp.real(jnp.conj(D[1]) * D[2])
+        + 2 * d[4] * jnp.real(jnp.conj(D[0]) * D[2])
+        + 2 * d[5] * jnp.real(jnp.conj(D[0]) * D[1])
+    )
+    rel_pe = (F * es**2 * q).sum() / den / 2
+    return omega * 1e6 * (rel_mb + rel_pe), (rel_mb, rel_pe)
+
+
+_optics_field_vg = jax.jit(jax.value_and_grad(_optics_field, argnums=(0, 1, 2, 3, 4), has_aux=True))
+
+
 def _theta_bilinear(f, ew, ex, g, dg, rb, eta, es, eb):
     """Re(wᴴ Θ(f) x) = N Re Σ e_w* ε⁻¹(f) e_x for fixed fields."""
     _, _, w, _, _, _ = _eps_tensor(f, g, dg, rb, eta, es, eb)
@@ -203,8 +241,10 @@ def _mech_fields(coef, fine, fm, c, n1, n2, nz, ms):
     # moving boundary
     cf = (c["wt_f"][..., None] * coef[c["idx_f"]]).sum(axis=0)  # (P, nb)
     u = jnp.einsum("pb,cbz->cpz", cf, c["P"]).reshape(3, M1, M2, -1)
-    d1 = (jnp.roll(fine, -1, 0) - jnp.roll(fine, 1, 0)) * M1 / 2
-    d2 = (jnp.roll(fine, -1, 1) - jnp.roll(fine, 1, 1)) * M2 / 2
+    # c["solid"] 1: the gradient weighted by 2f, so a step's jump lands on its Si side (field_functional's solid_side)
+    w = 1.0 + c.get("solid", 0.0) * (2 * fine - 1)
+    d1 = (jnp.roll(fine, -1, 0) - jnp.roll(fine, 1, 0)) * M1 / 2 * w
+    d2 = (jnp.roll(fine, -1, 1) - jnp.roll(fine, 1, 1)) * M2 / 2 * w
     gx, gy = d1 * rbf[0, 0] + d2 * rbf[1, 0], d1 * rbf[0, 1] + d2 * rbf[1, 1]
     inpl = -(u[0] * gx[..., None] + u[1] * gy[..., None])
     inpl = inpl.reshape(n1, M1 // n1, n2, M2 // n2, -1).mean(axis=(1, 3)) * c["gsel"]
@@ -361,6 +401,8 @@ def optomech_functional(
     minres_maxiter: int = 3000,
     to_mode=None,
     minres_jax: bool = False,
+    rhs_extra=None,
+    minres_x0: np.ndarray | None = None,
 ) -> dict:
     """
     The part of g0 shared by every mechanical model: L = ω_o (δω/ω)_MB+PE · 1e6 (rad/s per
@@ -373,7 +415,10 @@ def optomech_functional(
     g0 = L x_zpf. Used by `g0_gradient` (BlochSolver) and wavesolver.codesign (PiezoSolver modes).
     to_mode: the optical cell is a window of the mode's domain (see `_mech_tables`; gfm is then
     on the whole mechanical grid, gfine on the window's raster). minres_jax: the optical adjoint
-    by PWESolver.adjoint_solve(jax=True).
+    by PWESolver.adjoint_solve(jax=True). rhs_extra: callable L → (a, r_e, gf_e); the one optical
+    adjoint then gives d_opt of a·L + E instead of L, E another functional of the same optical
+    eigenvector (eigenvector gradient r_e as adjoint_solve's rhs, explicit fill gradient gf_e).
+    minres_x0: adjoint_solve's start; the solution comes back as "w".
     """
     info: dict = {}
     t0 = time.perf_counter()
@@ -398,16 +443,42 @@ def optomech_functional(
         t1 = time.perf_counter()
         r = np.asarray(gxr) + 1j * np.asarray(gxi)
         info["opt_rhs_overlap"] = abs(np.vdot(x, r)) / np.linalg.norm(r)
-        w, oinfo = opt_solver.adjoint_solve(band, r, tol=minres_tol, maxiter=minres_maxiter, jax=minres_jax)
+        a, r_e, gf_e = rhs_extra(float(L)) if rhs_extra is not None else (1.0, 0.0, 0.0)
+        w, oinfo = opt_solver.adjoint_solve(band, a * r + r_e, tol=minres_tol, maxiter=minres_maxiter, jax=minres_jax, x0=minres_x0)
         info.update({f"opt_{k}": v for k, v in oinfo.items()})
+        out["w"] = w
         ew = _curl(jnp.asarray(w.real), jnp.asarray(w.imag), *ostate)
         ex = _curl(jnp.asarray(x.real), jnp.asarray(x.imag), *ostate)
         gtheta = _theta_bilinear_grad(oi["f"], ew, ex, oi["g"], oi["dg"], oi["rb"], oi["eta"], oi["es"], oi["eb"])
-        out["d_opt"] = np.asarray(gf) - np.asarray(gtheta)
+        out["d_opt"] = a * np.asarray(gf) + gf_e - np.asarray(gtheta)
         info["t_opt_adjoint"] = time.perf_counter() - t1
     gcoef, gfine, gfm = _mech_fields_vjp(coef_j, fine_j, fm_j, tab, gdF, gS, n1, n2, nz, ms)
     out.update(gcoef=np.asarray(gcoef), gfine=np.asarray(gfine), gfm=np.asarray(gfm))
     return out
+
+
+def field_functional(cell, e: np.ndarray, omega: float, mode, fine_fraction: np.ndarray, mech_fraction: np.ndarray, p: np.ndarray = SI_P, strain_supersample: int | None = None, to_mode=None, solid_side: bool = False) -> dict:
+    """
+    `optomech_functional` for an optical field that comes from another solver: e ∝ D (3, N1, N2, Nz) on the voxels of `cell`, any normalisation, ω (rad/s) given. L as there, and
+      ge: ∂L/∂e as ∂/∂Re e + i ∂/∂Im e, so dL = Re(geᴴ de); d_opt: ∂L/∂f_o at fixed e; gcoef, gfine, gfm as there.
+    Whatever solver made e applies its own adjoint to ge.
+    solid_side: the moving boundary's in-plane gradient ∇f taken as 2f∇f, the same jump across a step from 0 to 1 but on its Si side. The central difference puts half of a sharp step on the
+    void pixel, and so on the nodes of an almost empty element there; a driven response F/K then grows as 1/f on those nodes (see the module's caveats).
+    """
+    n1, n2, nz = cell.eps.shape
+    nn1, nn2, dpn = mode.coef.shape
+    coef = np.real(mode.coef).reshape(nn1 * nn2, dpn)
+    tab, ms = _mech_tables(mode, cell, fine_fraction.shape, strain_supersample, to_mode)
+    if solid_side:
+        tab["solid"] = 1.0
+    coef_j, fine_j, fm_j = jnp.asarray(coef), jnp.asarray(fine_fraction, dtype=float), jnp.asarray(mech_fraction, dtype=float)
+    dF, S = _mech_fields(coef_j, fine_j, fm_j, tab, n1, n2, nz, ms)
+    oi = _optical_inputs(SimpleNamespace(cell=cell, shape=(n1, n2, nz)))
+    (L, (rel_mb, rel_pe)), (ger, gei, gf, gdF, gS) = _optics_field_vg(
+        jnp.asarray(e.real), jnp.asarray(e.imag), oi["f"], dF, S, jnp.asarray(p, dtype=float), oi["g"], oi["dg"], oi["rb"], oi["dz"], oi["eta"], oi["es"], oi["eb"], omega
+    )
+    gcoef, gfine, gfm = _mech_fields_vjp(coef_j, fine_j, fm_j, tab, gdF, gS, n1, n2, nz, ms)
+    return dict(L=float(L), rel_mb=float(rel_mb), rel_pe=float(rel_pe), ge=np.asarray(ger) + 1j * np.asarray(gei), d_opt=np.asarray(gf), gcoef=np.asarray(gcoef), gfine=np.asarray(gfine), gfm=np.asarray(gfm))
 
 
 def g0_gradient(
@@ -564,4 +635,4 @@ def fine_total_gradient(res: G0Gradient, d_mech: np.ndarray | None = None) -> np
     return res.d_fine + block_mean_adjoint(res.d_opt, shape) + block_mean_adjoint(dm, shape)
 
 
-__all__ = ["G0Gradient", "block_mean_adjoint", "fine_total_gradient", "g0_gradient", "optomech_functional"]
+__all__ = ["G0Gradient", "block_mean_adjoint", "field_functional", "fine_total_gradient", "g0_gradient", "optomech_functional"]
